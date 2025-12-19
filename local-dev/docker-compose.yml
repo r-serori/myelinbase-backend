@@ -1,0 +1,109 @@
+services:
+  # ============================================
+  # LocalStack - S3, Secrets Manager
+  # ============================================
+  localstack:
+    image: localstack/localstack:3.0.2
+    container_name: localstack
+    ports:
+      - "4566:4566" # LocalStack Gateway
+    environment:
+      - SERVICES=s3,secretsmanager
+      - DEBUG=${DEBUG:-0}
+      - PERSISTENCE=1
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - localstack-data:/var/lib/localstack
+      - ./localstack-init:/etc/localstack/init/ready.d
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # DynamoDB Local
+  # ============================================
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    user: root
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
+    volumes:
+      - dynamodb-data:/data
+    networks:
+      - rag-network
+
+  # ============================================
+  # DynamoDB Admin UI
+  # http://localhost:8001
+  # ============================================
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    container_name: dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      - DYNAMO_ENDPOINT=http://dynamodb-local:8000
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+    networks:
+      - rag-network
+
+  # ============================================
+  # RAG Status Simulator (New!)
+  # Step Functionsの代役として、PROCESSING -> COMPLETED に遷移させるくん
+  # ============================================
+  rag-status-simulator:
+    build:
+      context: ./docker/rag-status-simulator
+      dockerfile: Dockerfile
+    container_name: rag-status-simulator
+    environment:
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - TABLE_NAME=DocumentTable
+      - POLL_INTERVAL_MS=3000
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+    volumes:
+      - ./docker/rag-status-simulator/src:/app/src
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+    networks:
+      - rag-network
+
+  # ============================================
+  # 初期化コンテナ
+  # ============================================
+  init-resources:
+    image: amazon/aws-cli:latest
+    container_name: init-resources
+    environment:
+      - AWS_ACCESS_KEY_ID=local
+      - AWS_SECRET_ACCESS_KEY=local
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - ./scripts/init-local-resources.sh:/init.sh
+      - ./scripts:/init-configs
+    entrypoint: ["/bin/sh", "/init.sh"]
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+    networks:
+      - rag-network
+
+networks:
+  rag-network:
+    driver: bridge
+    name: rag-network
+
+volumes:
+  localstack-data:
+  dynamodb-data:

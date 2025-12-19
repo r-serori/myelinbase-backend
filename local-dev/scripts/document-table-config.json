@@ -1,0 +1,58 @@
+{
+  "TableName": "DocumentTable",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "documentId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "ownerId",
+      "AttributeType": "S"
+    },
+    {
+      "AttributeName": "fileName",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "documentId",
+      "KeyType": "HASH"
+    }
+  ],
+  "GlobalSecondaryIndexes": [
+    {
+      "IndexName": "OwnerIndex",
+      "KeySchema": [
+        {
+          "AttributeName": "ownerId",
+          "KeyType": "HASH"
+        }
+      ],
+      "Projection": {
+        "ProjectionType": "ALL"
+      }
+    },
+    {
+      "IndexName": "FileNameIndex",
+      "KeySchema": [
+        {
+          "AttributeName": "ownerId",
+          "KeyType": "HASH"
+        },
+        {
+          "AttributeName": "fileName",
+          "KeyType": "RANGE"
+        }
+      ],
+      "Projection": {
+        "ProjectionType": "KEYS_ONLY"
+      }
+    }
+  ],
+  "BillingMode": "PAY_PER_REQUEST",
+  "StreamSpecification": {
+    "StreamEnabled": true,
+    "StreamViewType": "NEW_AND_OLD_IMAGES"
+  }
+}

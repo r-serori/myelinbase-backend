@@ -1,0 +1,35 @@
+{
+  "name": "@myelinbase-backend/shared",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "exports": {
+    "./utils/dynamodb.js": "./utils/dynamodb.ts",
+    "./utils/s3.js": "./utils/s3.ts",
+    "./utils/rag.js": "./utils/rag.ts",
+    "./utils/text-processing.js": "./utils/text-processing.ts",
+    "./utils/embeddings.js": "./utils/embeddings.ts",
+    "./clients/bedrock.js": "./clients/bedrock.ts",
+    "./clients/pinecone.js": "./clients/pinecone.ts",
+    "./types/document.js": "./types/document.ts",
+    "./types/chat.js": "./types/chat.ts"
+  },
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^8.1.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.930.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.930.0",
+    "@aws-sdk/client-dynamodb": "^3.930.0",
+    "@aws-sdk/client-s3": "^3.930.0",
+    "@aws-sdk/lib-dynamodb": "^3.930.0",
+    "@aws-sdk/s3-request-presigner": "^3.930.0",
+    "@pinecone-database/pinecone": "^2.0.0",
+    "aws-sdk-client-mock": "^4.1.0",
+    "pdf-parse": "^1.1.1",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5",
+    "typescript": "^5.3.3"
+  }
+}

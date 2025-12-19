@@ -1,0 +1,20 @@
+{
+  "name": "documents-function",
+  "version": "1.0.0",
+  "description": "Documents API Lambda Function",
+  "main": "index.ts",
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^8.1.0",
+    "@aws-sdk/client-dynamodb": "^3.930.0",
+    "@aws-sdk/client-s3": "^3.930.0",
+    "@aws-sdk/lib-dynamodb": "^3.930.0",
+    "@aws-sdk/s3-request-presigner": "^3.930.0",
+    "@myelinbase-backend/shared": "file:../../shared",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.131",
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

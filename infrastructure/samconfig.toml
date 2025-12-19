@@ -1,0 +1,97 @@
+# samconfig.toml
+# SAM CLI の設定ファイル
+# 
+# 使用方法:
+#   sam deploy --config-env dev
+#   sam deploy --config-env prod
+
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "portfolio-rag"
+
+# ============================================
+# Dev環境
+# ============================================
+[dev]
+[dev.deploy.parameters]
+stack_name = "portfolio-rag-dev"
+resolve_s3 = true
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Stage=dev",
+  "ProjectName=portfolio-rag",
+  "FrontendUrl=http://localhost:3001",
+  "KnowledgeBaseId=",
+  "DataSourceId=",
+  "PineconeApiKeySecretName=pinecone-api-key",
+  "PineconeIndexHost="
+]
+image_repositories = []
+
+[dev.build.parameters]
+cached = true
+parallel = true
+
+[dev.validate.parameters]
+lint = true
+
+[dev.sync.parameters]
+watch = true
+
+# ============================================
+# Staging環境
+# ============================================
+[staging]
+[staging.deploy.parameters]
+stack_name = "portfolio-rag-staging"
+s3_bucket = "sam-deploy-bucket-staging-{account-id}"
+s3_prefix = "portfolio-rag"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Stage=dev",
+  "ProjectName=portfolio-rag",
+  "FrontendUrl=http://localhost:3001",
+  "KnowledgeBaseId={your-staging-kb-id}",
+  "DataSourceId={your-staging-ds-id}",
+  "PineconeApiKeySecretName=pinecone-api-key",
+  "PineconeIndexHost={your-pinecone-host}"
+]
+image_repositories = []
+
+[staging.build.parameters]
+cached = true
+parallel = true
+
+# ============================================
+# Prod環境
+# ============================================
+[prod]
+[prod.deploy.parameters]
+stack_name = "portfolio-rag-prod"
+resolve_s3 = true
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+  "Stage=prod",
+  "ProjectName=portfolio-rag",
+  "FrontendUrl=http://localhost:3001",
+  "KnowledgeBaseId={your-prod-kb-id}",
+  "DataSourceId={your-prod-ds-id}",
+  "PineconeApiKeySecretName=pinecone-api-key",
+  "PineconeIndexHost={your-pinecone-host}"
+]
+image_repositories = []
+
+[prod.build.parameters]
+cached = true
+parallel = true
+
+[prod.validate.parameters]
+lint = true

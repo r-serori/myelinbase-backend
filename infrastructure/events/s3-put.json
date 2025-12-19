@@ -1,0 +1,276 @@
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:00.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE123456789",
+        "x-amz-id-2": "EXAMPLE123/5678abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/0/IT機器・ソフトウェア利用ガイドライン.pdf",
+          "size": 1024,
+          "eTag": "0123456789abcdef0123456789abcdef",
+          "sequencer": "0A1B2C3D4E5F678901"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/1/ソーシャルメディア利用ガイドライン.pdf"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/2/安全衛生および健康管理規程.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/6543abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/3/育児・介護休業等に関する規程.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/6543abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/4/給与規程.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/6543abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/5/経費精算規定.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/6543abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/6/就業規則.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/6543abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/7/情報セキュリティ・コンプライアンスガイドライン.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    },
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2024-03-07T00:00:01.000Z",
+      "eventName": "ObjectCreated:Put",
+      "userIdentity": {
+        "principalId": "AWS:EXAMPLE"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "127.0.0.1"
+      },
+      "responseElements": {
+        "x-amz-request-id": "EXAMPLE987654321",
+        "x-amz-id-2": "EXAMPLE987/6543abcdefghijklambdaisawesome/mnopqrstuvwxyzABCDEFGH"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "testConfigRule",
+        "bucket": {
+          "name": "dev-documents-bucket",
+          "ownerIdentity": {
+            "principalId": "EXAMPLE"
+          },
+          "arn": "arn:aws:s3:::dev-documents-bucket"
+        },
+        "object": {
+          "key": "uploads/user-001/8/労働基準.pdf",
+          "size": 2048,
+          "eTag": "fedcba9876543210fedcba9876543210",
+          "sequencer": "1B2C3D4E5F678901A2"
+        }
+      }
+    }
+  ]
+}
