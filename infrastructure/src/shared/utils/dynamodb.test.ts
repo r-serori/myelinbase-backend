@@ -1,4 +1,4 @@
-import { encodeCursor, decodeCursor, createDynamoDBClient } from "./dynamodb";
+import { createDynamoDBClient, decodeCursor, encodeCursor } from "./dynamodb";
 
 describe("DynamoDB Utils", () => {
   describe("createDynamoDBClient", () => {

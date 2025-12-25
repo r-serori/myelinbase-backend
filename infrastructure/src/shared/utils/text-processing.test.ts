@@ -1,11 +1,12 @@
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { mockClient } from "aws-sdk-client-mock";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
+
 import {
-  splitTextIntoChunks,
-  createSmallToBigChunks,
   createDocumentMetadata,
+  createSmallToBigChunks,
   extractTextFromS3,
+  splitTextIntoChunks,
 } from "./text-processing";
 
 // pdf-parse のモック
@@ -13,7 +14,7 @@ import {
 jest.mock("pdf-parse", () => {
   return {
     __esModule: true,
-    default: jest.fn().mockImplementation(async (buffer) => {
+    default: jest.fn().mockImplementation((buffer) => {
       return {
         text: "Extracted PDF Text",
         numpages: 1,

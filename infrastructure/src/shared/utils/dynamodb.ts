@@ -6,21 +6,12 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
 /**
  * DynamoDB Document Client を作成
- * ローカル環境とAWS環境で自動切り替え
  */
 export function createDynamoDBClient(): DynamoDBDocumentClient {
   const config: DynamoDBClientConfig = {
     region: process.env.AWS_REGION || "us-east-1",
+    endpoint: process.env.DYNAMODB_ENDPOINT,
   };
-
-  console.log("STAGE", process.env.STAGE);
-  if (process.env.STAGE === "local") {
-    config.credentials = {
-      accessKeyId: "local",
-      secretAccessKey: "local",
-    };
-    config.endpoint = process.env.DYNAMODB_ENDPOINT;
-  }
 
   const client = new DynamoDBClient(config);
   return DynamoDBDocumentClient.from(client, {

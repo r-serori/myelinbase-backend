@@ -1,28 +1,28 @@
 // infrastructure/src/functions/processor/index.test.ts
 process.env.TABLE_NAME = "TestTable";
 process.env.BUCKET_NAME = "TestBucket";
-process.env.PINECONE_INDEX_NAME = "test-index";
 
-import { mockClient } from "aws-sdk-client-mock";
+import { S3Client } from "@aws-sdk/client-s3";
 import {
   DynamoDBDocumentClient,
-  UpdateCommand,
   GetCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { S3Client } from "@aws-sdk/client-s3";
+import { mockClient } from "aws-sdk-client-mock";
+
 import { handler } from "./index";
 
 // Mock modules
 jest.mock("../../shared/clients/bedrock");
 // pineconeの関数を個別にモック化する
 jest.mock("../../shared/clients/pinecone", () => {
+  const original = jest.requireActual("../../shared/clients/pinecone");
   return {
+    ...original,
     createPineconeClient: jest.fn(),
     getPineconeApiKey: jest.fn(),
     upsertDocumentVectors: jest.fn(),
-    // generateVectorId は実体を使う
-    generateVectorId: (documentId: string, chunkIndex: number) =>
-      `${documentId}#${chunkIndex}`,
+    // generateVectorId は実際の関数を使用（モック不要）
   };
 });
 
@@ -44,10 +44,9 @@ import {
   createPineconeClient,
   getPineconeApiKey,
   upsertDocumentVectors,
-  generateVectorId, // 追加: これもモックの対象になっているか確認、あるいは実体を使う
 } from "../../shared/clients/pinecone";
-import { extractTextFromS3 } from "../../shared/utils/text-processing";
 import { ChunkData } from "../../shared/types/processor";
+import { extractTextFromS3 } from "../../shared/utils/text-processing";
 
 // --- AWS Client Mocks ---
 const ddbMock = mockClient(DynamoDBDocumentClient);
@@ -262,7 +261,7 @@ describe("Processor Function", () => {
 
       // upsertDocumentVectorsの引数検証
       const upsertArgs = (upsertDocumentVectors as jest.Mock).mock.calls[0];
-      const vectors = upsertArgs[2];
+      const vectors = upsertArgs[1]; // [0] = client, [1] = vectors
       expect(vectors).toHaveLength(2);
 
       // メタデータには "Parent Text" が保存されていることを確認

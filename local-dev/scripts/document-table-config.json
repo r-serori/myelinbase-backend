@@ -12,6 +12,10 @@
     {
       "AttributeName": "fileName",
       "AttributeType": "S"
+    },
+    {
+      "AttributeName": "createdAt",
+      "AttributeType": "S"
     }
   ],
   "KeySchema": [
@@ -27,6 +31,10 @@
         {
           "AttributeName": "ownerId",
           "KeyType": "HASH"
+        },
+        {
+          "AttributeName": "createdAt",
+          "KeyType": "RANGE"
         }
       ],
       "Projection": {

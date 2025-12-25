@@ -1,11 +1,12 @@
 // infrastructure/src/shared/utils/text-processing.ts
 // テキスト抽出とチャンク分割（S3 Trigger専用）
 
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { Readable } from "stream";
-import { DocumentMetadata } from "../types/document";
-import { ChunkData } from "../types/processor";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
+import { Readable } from "stream";
+
+import type { DocumentMetadataEntity } from "../schemas/entities/document.entity";
+import { ChunkData } from "../types/processor";
 
 /**
  * S3からファイルを取得してテキストを抽出
@@ -47,9 +48,18 @@ export async function extractTextFromS3(
  */
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   // pdf-parseを使用してPDFからテキスト抽出（動的インポート）
-  const pdfParse = await import("pdf-parse");
-  // @ts-ignore
-  const data = await pdfParse.default(buffer);
+  // pdf-parse は CommonJS モジュールなので、default プロパティまたは直接関数としてエクスポートされる
+  const pdfParseModule = await import("pdf-parse");
+  // CommonJS モジュールの場合、default プロパティにアクセスする
+
+  const pdfParse =
+    (
+      pdfParseModule as {
+        default?: (buffer: Buffer) => Promise<{ text: string }>;
+      }
+    ).default ||
+    (pdfParseModule as any); /* eslint-disable-line @typescript-eslint/no-explicit-any */
+  const data = await pdfParse(buffer);
   return data.text;
 }
 
@@ -169,7 +179,7 @@ export function createDocumentMetadata(
   totalChunks: number,
   text: string,
   parentId?: string
-): DocumentMetadata {
+): DocumentMetadataEntity {
   const meta: any = {
     documentId,
     fileName,

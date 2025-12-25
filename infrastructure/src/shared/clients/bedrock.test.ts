@@ -1,10 +1,11 @@
-import { mockClient } from "aws-sdk-client-mock";
 import {
   BedrockRuntimeClient,
-  InvokeModelWithResponseStreamCommand,
   InvokeModelCommand,
+  InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { invokeClaudeStream, generateEmbeddings } from "./bedrock";
+import { mockClient } from "aws-sdk-client-mock";
+
+import { generateEmbeddings, invokeClaudeStream } from "./bedrock";
 
 const bedrockMock = mockClient(BedrockRuntimeClient);
 
@@ -39,7 +40,7 @@ describe("Bedrock Client", () => {
     it("should yield text chunks from stream", async () => {
       // ストリームのチャンクを模倣
       const mockStream = {
-        [Symbol.asyncIterator]: async function* () {
+        [Symbol.asyncIterator]: function* () {
           yield {
             chunk: {
               bytes: new TextEncoder().encode(

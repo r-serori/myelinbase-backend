@@ -1,24 +1,24 @@
 // infrastructure/src/shared/clients/pinecone.ts
 // Pinecone クライアントユーティリティ
 
-import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
 import {
-  SecretsManagerClient,
   GetSecretValueCommand,
+  SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
-import { AppError } from "../utils/api-handler";
+import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
+
 import { ErrorCode } from "../types/error-code";
 import {
-  VectorSearchResult,
-  VectorSearchMetadata,
   PineconeVector,
+  VectorSearchMetadata,
+  VectorSearchResult,
 } from "../types/pinecone";
-
-const PINECONE_SECRET_NAME =
-  process.env.PINECONE_SECRET_NAME || "pinecone-api-key";
+import { AppError } from "../utils/api-handler";
 
 const secretsClient = new SecretsManagerClient({});
 let cachedPineconeApiKey: string | null = null;
+
+const pineconeIndexName = process.env.PINECONE_INDEX_NAME!;
 
 /**
  * Secrets ManagerからPinecone APIキーを取得 (キャッシュ付き)
@@ -27,7 +27,9 @@ export async function getPineconeApiKey(): Promise<string> {
   if (cachedPineconeApiKey) return cachedPineconeApiKey;
 
   const response = await secretsClient.send(
-    new GetSecretValueCommand({ SecretId: PINECONE_SECRET_NAME })
+    new GetSecretValueCommand({
+      SecretId: process.env.PINECONE_API_KEY_SECRET_NAME,
+    })
   );
 
   const secret = JSON.parse(response.SecretString || "{}");
@@ -66,10 +68,9 @@ export function generateVectorId(
  */
 export async function upsertDocumentVectors(
   client: Pinecone,
-  indexName: string,
   vectors: PineconeVector[]
 ): Promise<void> {
-  const index = client.index<RecordMetadata>(indexName);
+  const index = client.index<RecordMetadata>(pineconeIndexName);
 
   const BATCH_SIZE = 100;
   for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
@@ -86,10 +87,9 @@ export async function upsertDocumentVectors(
  */
 export async function deleteDocumentVectors(
   client: Pinecone,
-  indexName: string,
   documentId: string
 ): Promise<void> {
-  const index = client.index(indexName);
+  const index = client.index(pineconeIndexName);
 
   await index.deleteMany({
     filter: {
@@ -103,12 +103,11 @@ export async function deleteDocumentVectors(
  */
 export async function searchVectors(
   client: Pinecone,
-  indexName: string,
   queryVector: number[],
   topK: number = 5,
   filter?: Record<string, any>
 ): Promise<VectorSearchResult[]> {
-  const index = client.index<RecordMetadata>(indexName);
+  const index = client.index<RecordMetadata>(pineconeIndexName);
 
   const response = await index.query({
     vector: queryVector,
@@ -121,7 +120,6 @@ export async function searchVectors(
     response.matches?.map((match) => ({
       id: match.id,
       score: match.score || 0,
-      // RecordMetadataからVectorSearchMetadataへの型アサーション
       metadata: match.metadata as unknown as VectorSearchMetadata,
     })) || []
   );
@@ -132,12 +130,11 @@ export async function searchVectors(
  */
 export async function searchVectorsByOwner(
   client: Pinecone,
-  indexName: string,
   queryVector: number[],
   ownerId: string,
   topK: number = 5
 ): Promise<VectorSearchResult[]> {
-  return searchVectors(client, indexName, queryVector, topK, {
+  return searchVectors(client, queryVector, topK, {
     ownerId: { $eq: ownerId },
   });
 }

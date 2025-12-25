@@ -1,34 +1,39 @@
-# samconfig.toml
-# SAM CLI の設定ファイル
-# 
-# 使用方法:
-#   sam deploy --config-env dev
-#   sam deploy --config-env prod
-
 version = 0.1
 
 [default]
 [default.global.parameters]
-stack_name = "portfolio-rag"
+stack_name = "myelinbase-backend"
 
 # ============================================
-# Dev環境
+# Local Development
+# ※ ローカル環境は template-local.yaml を使用するため、
+#   通常の sam local コマンドでこのファイルを使う場合は
+#   template_file = "template-local.yaml" オプションが必要です。
+# ============================================
+
+# ============================================
+# Dev Environment (AWS)
 # ============================================
 [dev]
 [dev.deploy.parameters]
-stack_name = "portfolio-rag-dev"
+stack_name = "myelinbase-backend-dev"
 resolve_s3 = true
 region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Stage=dev",
-  "ProjectName=portfolio-rag",
-  "FrontendUrl=http://localhost:3001",
-  "KnowledgeBaseId=",
-  "DataSourceId=",
-  "PineconeApiKeySecretName=pinecone-api-key",
-  "PineconeIndexHost="
+  "ProjectName=myelinbase-backend",
+  # 開発環境: Vercel Preview URL等からのアクセスを許可するためにワイルドカード推奨
+  "FrontendUrl=*", 
+  # Dev環境ではカスタムドメインを使用しない (空文字)
+  "DomainName=",
+  "CertificateArn=",
+  "HostedZoneId=",
+  # AWS環境なのでBedrockを有効化
+  "UseBedrock=false",
+  "PineconeApiKeySecretName=pinecone-api-key"
+  # ローカル用エンドポイントパラメータは削除
 ]
 image_repositories = []
 
@@ -36,62 +41,33 @@ image_repositories = []
 cached = true
 parallel = true
 
-[dev.validate.parameters]
-lint = true
-
-[dev.sync.parameters]
-watch = true
-
 # ============================================
-# Staging環境
-# ============================================
-[staging]
-[staging.deploy.parameters]
-stack_name = "portfolio-rag-staging"
-s3_bucket = "sam-deploy-bucket-staging-{account-id}"
-s3_prefix = "portfolio-rag"
-region = "us-east-1"
-confirm_changeset = true
-capabilities = "CAPABILITY_IAM"
-parameter_overrides = [
-  "Stage=dev",
-  "ProjectName=portfolio-rag",
-  "FrontendUrl=http://localhost:3001",
-  "KnowledgeBaseId={your-staging-kb-id}",
-  "DataSourceId={your-staging-ds-id}",
-  "PineconeApiKeySecretName=pinecone-api-key",
-  "PineconeIndexHost={your-pinecone-host}"
-]
-image_repositories = []
-
-[staging.build.parameters]
-cached = true
-parallel = true
-
-# ============================================
-# Prod環境
+# Prod Environment (AWS)
 # ============================================
 [prod]
 [prod.deploy.parameters]
-stack_name = "portfolio-rag-prod"
+stack_name = "myelinbase-backend-prod"
 resolve_s3 = true
 region = "us-east-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Stage=prod",
-  "ProjectName=portfolio-rag",
-  "FrontendUrl=http://localhost:3001",
-  "KnowledgeBaseId={your-prod-kb-id}",
-  "DataSourceId={your-prod-ds-id}",
-  "PineconeApiKeySecretName=pinecone-api-key",
-  "PineconeIndexHost={your-pinecone-host}"
+  "ProjectName=myelinbase-backend",
+  # 本番環境: 明確なFrontend URL (Vercel Custom Domain)
+  "FrontendUrl=https://app.myelinbase.com",
+  # 本番環境: Backend Custom Domain
+  "DomainName=api.myelinbase.com",
+  # 事前に作成したACM証明書のARN
+  "CertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  # 事前に確認したRoute53 Hosted Zone ID
+  "HostedZoneId=Z0123456789ABCDEFGHIJ",
+  # Bedrock有効
+  "UseBedrock=true",
+  "PineconeApiKeySecretName=pinecone-api-key-prod"
 ]
 image_repositories = []
 
 [prod.build.parameters]
 cached = true
 parallel = true
-
-[prod.validate.parameters]
-lint = true

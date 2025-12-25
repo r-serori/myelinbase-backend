@@ -1,16 +1,25 @@
 services:
   # ============================================
-  # LocalStack - S3, Secrets Manager
+  # LocalStack - S3, Secrets Manager, Lambda, DynamoDB (Proxy), Logs
   # ============================================
   localstack:
     image: localstack/localstack:3.0.2
     container_name: localstack
     ports:
-      - "4566:4566" # LocalStack Gateway
+      - "4566:4566" # Gateway
+      - "4510-4559:4510-4559" # External services port range
     environment:
-      - SERVICES=s3,secretsmanager
       - DEBUG=${DEBUG:-0}
       - PERSISTENCE=1
+      # Lambda設定 (LocalStack 3.x)
+      - LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT=60
+      - LAMBDA_DOCKER_NETWORK=rag-network
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - LAMBDA_REMOVE_CONTAINERS=true
+      # 署名検証スキップ（開発環境用）
+      - S3_SKIP_SIGNATURE_VALIDATION=1
+      # Lambdaのホットリロード無効化（安定性向上）
+      - LAMBDA_KEEPALIVE_MS=0
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - localstack-data:/var/lib/localstack
@@ -52,30 +61,6 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=local
       - AWS_SECRET_ACCESS_KEY=local
-    networks:
-      - rag-network
-
-  # ============================================
-  # RAG Status Simulator (New!)
-  # Step Functionsの代役として、PROCESSING -> COMPLETED に遷移させるくん
-  # ============================================
-  rag-status-simulator:
-    build:
-      context: ./docker/rag-status-simulator
-      dockerfile: Dockerfile
-    container_name: rag-status-simulator
-    environment:
-      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
-      - TABLE_NAME=DocumentTable
-      - POLL_INTERVAL_MS=3000
-      - AWS_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=local
-      - AWS_SECRET_ACCESS_KEY=local
-    volumes:
-      - ./docker/rag-status-simulator/src:/app/src
-    depends_on:
-      dynamodb-local:
-        condition: service_started
     networks:
       - rag-network
 

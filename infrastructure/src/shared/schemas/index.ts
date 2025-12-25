@@ -1,8 +1,13 @@
-import { z } from "zod";
-import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+// =================================================================
+// 公開エントリーポイント
+// DTOのみ公開（Entityは内部用なのでexportしない）
+// =================================================================
 
-extendZodWithOpenApi(z);
+// Chat DTO
+export * from "./dto/chat.dto";
 
-export * from "./chat";
-export * from "./document";
+// Document DTO
+export * from "./dto/document.dto";
 
+// Registry
+export { registry } from "./registry";

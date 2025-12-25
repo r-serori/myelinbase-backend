@@ -1,7 +1,11 @@
 import { OpenAPIRegistry } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
-import * as ChatSchemas from "./chat";
-import * as DocumentSchemas from "./document";
+
+import { ErrorCode } from "../types/error-code";
+
+// DTOのみインポート（Entityはインポートしない）
+import * as ChatDTO from "./dto/chat.dto";
+import * as DocumentDTO from "./dto/document.dto";
 
 export const registry = new OpenAPIRegistry();
 
@@ -13,32 +17,149 @@ const bearerAuth = registry.registerComponent("securitySchemes", "BearerAuth", {
 });
 
 // =================================================================
-// スキーマ登録 (Schemas)
+// 共通スキーマ登録
 // =================================================================
 
-// Chat
-registry.register("ChatSession", ChatSchemas.ChatSessionSchema);
-registry.register("ChatMessage", ChatSchemas.ChatMessageSchema);
-registry.register("ChatStreamRequest", ChatSchemas.ChatStreamRequestSchema);
-registry.register(
-  "SubmitFeedbackRequest",
-  ChatSchemas.SubmitFeedbackRequestSchema
-);
+const ErrorCodeSchema = z.nativeEnum(ErrorCode).openapi("ErrorCode");
+registry.register("ErrorCode", ErrorCodeSchema);
+
+const ErrorResponseSchema = z
+  .object({
+    errorCode: ErrorCodeSchema,
+  })
+  .openapi("ErrorResponse");
+registry.register("ErrorResponse", ErrorResponseSchema);
+
+// =================================================================
+// Chat スキーマ登録
+// =================================================================
+
+registry.register("SourceDocument", ChatDTO.SourceDocumentSchema);
+registry.register("FeedbackType", ChatDTO.FeedbackTypeSchema);
+registry.register("ChatSession", ChatDTO.ChatSessionSchema);
+registry.register("ChatMessage", ChatDTO.ChatMessageSchema);
+registry.register("ChatStreamRequest", ChatDTO.ChatStreamRequestSchema);
+registry.register("SubmitFeedbackRequest", ChatDTO.SubmitFeedbackRequestSchema);
 registry.register(
   "UpdateSessionNameRequest",
-  ChatSchemas.UpdateSessionNameRequestSchema
+  ChatDTO.UpdateSessionNameRequestSchema
 );
-registry.register("SessionSummary", ChatSchemas.SessionSummarySchema);
-registry.register("MessageSummary", ChatSchemas.MessageSummarySchema);
+registry.register(
+  "GetSessionMessagesQueryParams",
+  ChatDTO.GetSessionMessagesQueryParamsSchema
+);
+registry.register("SessionSummary", ChatDTO.SessionSummarySchema);
+registry.register("MessageSummary", ChatDTO.MessageSummarySchema);
+registry.register("GetSessionsResponse", ChatDTO.GetSessionsResponseSchema);
+registry.register(
+  "GetSessionMessagesResponse",
+  ChatDTO.GetSessionMessagesResponseSchema
+);
+registry.register(
+  "UpdateSessionNameResponse",
+  ChatDTO.UpdateSessionNameResponseSchema
+);
+registry.register("DeleteSessionResponse", ChatDTO.DeleteSessionResponseSchema);
+registry.register(
+  "SubmitFeedbackResponse",
+  ChatDTO.SubmitFeedbackResponseSchema
+);
+registry.register(
+  "ChatStreamErrorResponse",
+  ChatDTO.ChatStreamErrorResponseSchema
+);
+registry.register(
+  "SubmitFeedbackErrorResponse",
+  ChatDTO.SubmitFeedbackErrorResponseSchema
+);
+registry.register(
+  "UpdateSessionNameErrorResponse",
+  ChatDTO.UpdateSessionNameErrorResponseSchema
+);
+registry.register(
+  "GetSessionMessagesErrorResponse",
+  ChatDTO.GetSessionMessagesErrorResponseSchema
+);
+registry.register(
+  "DeleteSessionErrorResponse",
+  ChatDTO.DeleteSessionErrorResponseSchema
+);
 
-// Document
-registry.register("Document", DocumentSchemas.DocumentSchema);
+registry.register("TextUIPart", ChatDTO.TextUIPartSchema);
+registry.register("SourceDocumentUIPart", ChatDTO.SourceDocumentUIPartSchema);
+registry.register("UIMessagePart", ChatDTO.UIMessagePartSchema);
+registry.register("UIMessage", ChatDTO.UIMessageSchema);
+
+registry.register("TextStartChunk", ChatDTO.TextStartChunkSchema);
+registry.register("TextDeltaChunk", ChatDTO.TextDeltaChunkSchema);
+registry.register("TextEndChunk", ChatDTO.TextEndChunkSchema);
+registry.register("SourceDocumentChunk", ChatDTO.SourceDocumentChunkSchema);
+registry.register("ErrorChunk", ChatDTO.ErrorChunkSchema);
+registry.register("DataChunk", ChatDTO.DataChunkSchema);
+registry.register("UIMessageChunk", ChatDTO.UIMessageChunkSchema);
+
+// =================================================================
+// Document スキーマ登録
+// =================================================================
+
+registry.register("DocumentStatus", DocumentDTO.DocumentStatusSchema);
+registry.register("DocumentResponse", DocumentDTO.DocumentResponseSchema);
+registry.register("FileMetadata", DocumentDTO.FileMetadataSchema);
 registry.register(
   "UploadRequestRequest",
-  DocumentSchemas.UploadRequestRequestSchema
+  DocumentDTO.UploadRequestRequestSchema
 );
-registry.register("UpdateTagsRequest", DocumentSchemas.UpdateTagsRequestSchema);
-registry.register("DocumentResponse", DocumentSchemas.DocumentResponseSchema);
+registry.register("UpdateTagsRequest", DocumentDTO.UpdateTagsRequestSchema);
+registry.register("BatchDeleteRequest", DocumentDTO.BatchDeleteRequestSchema);
+registry.register(
+  "GetDocumentsResponse",
+  DocumentDTO.GetDocumentsResponseSchema
+);
+registry.register("GetDocumentResponse", DocumentDTO.GetDocumentResponseSchema);
+registry.register(
+  "GetDocumentDownloadUrlResponse",
+  DocumentDTO.GetDocumentDownloadUrlResponseSchema
+);
+registry.register("UploadRequestResult", DocumentDTO.UploadRequestResultSchema);
+registry.register(
+  "UploadRequestFileResult",
+  DocumentDTO.UploadRequestFileResultSchema
+);
+registry.register(
+  "UploadRequestResponse",
+  DocumentDTO.UploadRequestResponseSchema
+);
+registry.register(
+  "DeleteDocumentResponse",
+  DocumentDTO.DeleteDocumentResponseSchema
+);
+registry.register("BatchDeleteResult", DocumentDTO.BatchDeleteResultSchema);
+registry.register("BatchDeleteResponse", DocumentDTO.BatchDeleteResponseSchema);
+registry.register("UpdateTagsResponse", DocumentDTO.UpdateTagsResponseSchema);
+registry.register(
+  "UploadRequestErrorResponse",
+  DocumentDTO.UploadRequestErrorResponseSchema
+);
+registry.register(
+  "UpdateTagsErrorResponse",
+  DocumentDTO.UpdateTagsErrorResponseSchema
+);
+registry.register(
+  "BatchDeleteErrorResponse",
+  DocumentDTO.BatchDeleteErrorResponseSchema
+);
+registry.register(
+  "GetDocumentErrorResponse",
+  DocumentDTO.GetDocumentErrorResponseSchema
+);
+registry.register(
+  "GetDocumentDownloadUrlErrorResponse",
+  DocumentDTO.GetDocumentDownloadUrlErrorResponseSchema
+);
+registry.register(
+  "DeleteDocumentErrorResponse",
+  DocumentDTO.DeleteDocumentErrorResponseSchema
+);
 
 // =================================================================
 // パス定義 (Chat API)
@@ -47,53 +168,109 @@ registry.register("DocumentResponse", DocumentSchemas.DocumentResponseSchema);
 registry.registerPath({
   method: "post",
   path: "/chat/stream",
-  summary: "チャットストリーミング",
-  description: "AIとのチャットを行い、Server-Sent Events (SSE) で回答を受信します。",
+  summary: "Chat Streaming",
+  description:
+    "Send messages and receive a streaming response using Vercel AI SDK v3.x UI Message Stream Protocol (NDJSON format).",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     body: {
       content: {
         "application/json": {
-          schema: ChatSchemas.ChatStreamRequestSchema,
+          schema: ChatDTO.ChatStreamRequestSchema,
         },
       },
     },
   },
   responses: {
     200: {
-      description: "ストリーミングレスポンス",
+      description:
+        "Successful stream response (NDJSON - Newline Delimited JSON). Each line is a UIMessageChunk object.",
       content: {
-        "text/event-stream": {
-          schema: z.string(),
+        "text/plain; charset=utf-8": {
+          schema: z.string().openapi({
+            description:
+              "NDJSON stream of UIMessageChunk objects. Each line contains a JSON object with a 'type' field.",
+            example:
+              '{"type":"text-start","id":"text-123"}\n{"type":"text-delta","id":"text-123","delta":"Hello"}\n{"type":"text-end","id":"text-123"}',
+          }),
         },
       },
+      headers: z.object({
+        "X-Vercel-AI-UI-Message-Stream": z
+          .literal("v1")
+          .openapi({ description: "UI Message Stream Protocol version" }),
+        "X-Accel-Buffering": z
+          .literal("no")
+          .openapi({ description: "Disable proxy buffering" }),
+        "Cache-Control": z
+          .literal("no-cache")
+          .openapi({ description: "Disable caching" }),
+      }),
     },
-    400: { description: "Invalid Parameter" },
-    401: { description: "Unauthorized" },
+    400: {
+      description: "Bad Request",
+      content: {
+        "application/json": { schema: ChatDTO.ChatStreamErrorResponseSchema },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+    403: {
+      description: "Forbidden",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
   },
 });
 
 registry.registerPath({
   method: "post",
   path: "/chat/feedback",
-  summary: "フィードバック送信",
+  summary: "Submit Feedback",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     body: {
       content: {
-        "application/json": {
-          schema: ChatSchemas.SubmitFeedbackRequestSchema,
-        },
+        "application/json": { schema: ChatDTO.SubmitFeedbackRequestSchema },
       },
     },
   },
   responses: {
     200: {
-      description: "Success",
+      description: "Feedback submitted",
+      content: {
+        "application/json": { schema: ChatDTO.SubmitFeedbackResponseSchema },
+      },
+    },
+    400: {
+      description: "Bad Request",
       content: {
         "application/json": {
-          schema: ChatSchemas.SubmitFeedbackResponseSchema,
+          schema: ChatDTO.SubmitFeedbackErrorResponseSchema,
         },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -102,15 +279,25 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/chat/sessions",
-  summary: "セッション一覧取得",
+  summary: "List Sessions",
   security: [{ [bearerAuth.name]: [] }],
   responses: {
     200: {
-      description: "Session List",
+      description: "List of chat sessions",
       content: {
-        "application/json": {
-          schema: ChatSchemas.GetSessionsResponseSchema,
-        },
+        "application/json": { schema: ChatDTO.GetSessionsResponseSchema },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -119,19 +306,41 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/chat/sessions/{sessionId}",
-  summary: "セッションメッセージ取得",
+  summary: "Get Session Messages",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     params: z.object({ sessionId: z.string() }),
-    query: ChatSchemas.GetSessionMessagesQueryParamsSchema,
+    query: ChatDTO.GetSessionMessagesQueryParamsSchema,
   },
   responses: {
     200: {
-      description: "Messages",
+      description: "Session messages",
       content: {
         "application/json": {
-          schema: ChatSchemas.GetSessionMessagesResponseSchema,
+          schema: ChatDTO.GetSessionMessagesResponseSchema,
         },
+      },
+    },
+    400: {
+      description: "Bad Request",
+      content: {
+        "application/json": {
+          schema: ChatDTO.GetSessionMessagesErrorResponseSchema,
+        },
+      },
+    },
+    404: {
+      description: "Not Found",
+      content: {
+        "application/json": {
+          schema: ChatDTO.GetSessionMessagesErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -140,25 +349,43 @@ registry.registerPath({
 registry.registerPath({
   method: "patch",
   path: "/chat/sessions/{sessionId}",
-  summary: "セッション名更新",
+  summary: "Update Session Name",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     params: z.object({ sessionId: z.string() }),
     body: {
       content: {
-        "application/json": {
-          schema: ChatSchemas.UpdateSessionNameRequestSchema,
-        },
+        "application/json": { schema: ChatDTO.UpdateSessionNameRequestSchema },
       },
     },
   },
   responses: {
     200: {
-      description: "Success",
+      description: "Session updated",
+      content: {
+        "application/json": { schema: ChatDTO.UpdateSessionNameResponseSchema },
+      },
+    },
+    400: {
+      description: "Bad Request",
       content: {
         "application/json": {
-          schema: ChatSchemas.UpdateSessionNameResponseSchema,
+          schema: ChatDTO.UpdateSessionNameErrorResponseSchema,
         },
+      },
+    },
+    404: {
+      description: "Not Found",
+      content: {
+        "application/json": {
+          schema: ChatDTO.UpdateSessionNameErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -167,18 +394,30 @@ registry.registerPath({
 registry.registerPath({
   method: "delete",
   path: "/chat/sessions/{sessionId}",
-  summary: "セッション削除",
+  summary: "Delete Session",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     params: z.object({ sessionId: z.string() }),
   },
   responses: {
     200: {
-      description: "Success",
+      description: "Session deleted",
+      content: {
+        "application/json": { schema: ChatDTO.DeleteSessionResponseSchema },
+      },
+    },
+    404: {
+      description: "Not Found",
       content: {
         "application/json": {
-          schema: ChatSchemas.DeleteSessionResponseSchema,
+          schema: ChatDTO.DeleteSessionErrorResponseSchema,
         },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -191,15 +430,25 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/documents",
-  summary: "ドキュメント一覧取得",
+  summary: "List Documents",
   security: [{ [bearerAuth.name]: [] }],
   responses: {
     200: {
-      description: "Document List",
+      description: "List of documents",
       content: {
-        "application/json": {
-          schema: DocumentSchemas.GetDocumentsResponseSchema,
-        },
+        "application/json": { schema: DocumentDTO.GetDocumentsResponseSchema },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -207,26 +456,154 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/documents/upload-request",
-  summary: "アップロードリクエスト作成",
+  path: "/documents/upload",
+  summary: "Request Upload URL",
   description: "S3への署名付きアップロードURLを発行します。",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     body: {
       content: {
-        "application/json": {
-          schema: DocumentSchemas.UploadRequestRequestSchema,
-        },
+        "application/json": { schema: DocumentDTO.UploadRequestRequestSchema },
       },
     },
   },
   responses: {
     202: {
-      description: "Accepted",
+      description: "Upload URL generated",
+      content: {
+        "application/json": { schema: DocumentDTO.UploadRequestResponseSchema },
+      },
+    },
+    400: {
+      description: "Bad Request",
       content: {
         "application/json": {
-          schema: DocumentSchemas.UploadRequestResponseSchema,
+          schema: DocumentDTO.UploadRequestErrorResponseSchema,
         },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/documents/batch-delete",
+  summary: "Batch Delete Documents",
+  security: [{ [bearerAuth.name]: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": { schema: DocumentDTO.BatchDeleteRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Batch delete completed",
+      content: {
+        "application/json": { schema: DocumentDTO.BatchDeleteResponseSchema },
+      },
+    },
+    400: {
+      description: "Bad Request",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.BatchDeleteErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/documents/{id}",
+  summary: "Get Document",
+  security: [{ [bearerAuth.name]: [] }],
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      description: "Document details",
+      content: {
+        "application/json": { schema: DocumentDTO.GetDocumentResponseSchema },
+      },
+    },
+    400: {
+      description: "Bad Request",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.GetDocumentErrorResponseSchema,
+        },
+      },
+    },
+    404: {
+      description: "Not Found",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.GetDocumentErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
+      },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/documents/{id}/download-url",
+  summary: "Get Document Download URL",
+  security: [{ [bearerAuth.name]: [] }],
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      description: "Download URL",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.GetDocumentDownloadUrlResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: "Bad Request",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.GetDocumentDownloadUrlErrorResponseSchema,
+        },
+      },
+    },
+    404: {
+      description: "Not Found",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.GetDocumentDownloadUrlErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -235,18 +612,40 @@ registry.registerPath({
 registry.registerPath({
   method: "delete",
   path: "/documents/{id}",
-  summary: "ドキュメント削除",
+  summary: "Delete Document",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     params: z.object({ id: z.string() }),
   },
   responses: {
     202: {
-      description: "Accepted",
+      description: "Document deleted",
       content: {
         "application/json": {
-          schema: DocumentSchemas.DeleteDocumentResponseSchema,
+          schema: DocumentDTO.DeleteDocumentResponseSchema,
         },
+      },
+    },
+    400: {
+      description: "Bad Request",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.DeleteDocumentErrorResponseSchema,
+        },
+      },
+    },
+    404: {
+      description: "Not Found",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.DeleteDocumentErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
@@ -255,27 +654,44 @@ registry.registerPath({
 registry.registerPath({
   method: "patch",
   path: "/documents/{id}/tags",
-  summary: "ドキュメントタグ更新",
+  summary: "Update Tags",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     params: z.object({ id: z.string() }),
     body: {
       content: {
-        "application/json": {
-          schema: DocumentSchemas.UpdateTagsRequestSchema,
-        },
+        "application/json": { schema: DocumentDTO.UpdateTagsRequestSchema },
       },
     },
   },
   responses: {
     200: {
-      description: "Success",
+      description: "Tags updated",
+      content: {
+        "application/json": { schema: DocumentDTO.UpdateTagsResponseSchema },
+      },
+    },
+    400: {
+      description: "Bad Request",
       content: {
         "application/json": {
-          schema: DocumentSchemas.UpdateTagsResponseSchema,
+          schema: DocumentDTO.UpdateTagsErrorResponseSchema,
         },
+      },
+    },
+    404: {
+      description: "Not Found",
+      content: {
+        "application/json": {
+          schema: DocumentDTO.UpdateTagsErrorResponseSchema,
+        },
+      },
+    },
+    500: {
+      description: "Internal Server Error",
+      content: {
+        "application/json": { schema: ErrorResponseSchema },
       },
     },
   },
 });
-

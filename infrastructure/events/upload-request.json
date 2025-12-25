@@ -1,6 +1,6 @@
 {
   "httpMethod": "POST",
-  "path": "/documents/upload-request",
+  "path": "/documents/upload",
   "headers": {
     "Authorization": "Bearer mock-jwt-token",
     "Content-Type": "application/json"

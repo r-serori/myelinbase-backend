@@ -6,12 +6,7 @@ import {
   InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 
-const REGION = process.env.AWS_REGION || "us-east-1";
-const CLAUDE_MODEL_ID =
-  process.env.MODEL_ID || "anthropic.claude-3-haiku-20240307-v1:0";
-const TITAN_EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v1";
-
-const client = new BedrockRuntimeClient({ region: REGION });
+const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION });
 
 /**
  * テキスト配列をベクトル化する (Titan Embeddings)
@@ -27,7 +22,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     const batchResults = await Promise.all(
       batch.map(async (text) => {
         const command = new InvokeModelCommand({
-          modelId: TITAN_EMBEDDING_MODEL_ID,
+          modelId: process.env.EMBEDDING_MODEL_ID,
           contentType: "application/json",
           body: JSON.stringify({
             inputText: text,
@@ -56,7 +51,7 @@ export async function* invokeClaudeStream(
   maxTokens: number = 1024
 ): AsyncGenerator<string, void, unknown> {
   const command = new InvokeModelWithResponseStreamCommand({
-    modelId: CLAUDE_MODEL_ID,
+    modelId: process.env.CHAT_MODEL_ID,
     contentType: "application/json",
     body: JSON.stringify({
       anthropic_version: "bedrock-2023-05-31",

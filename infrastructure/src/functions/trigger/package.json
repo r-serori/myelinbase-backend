@@ -4,7 +4,8 @@
   "description": "Trigger Lambda for RAG Ingestion",
   "main": "index.ts",
   "dependencies": {
-    "@aws-sdk/client-sfn": "^3.940.0"
+    "@aws-sdk/client-lambda": "^3.930.0",
+    "@aws-sdk/client-sfn": "^3.930.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.131",

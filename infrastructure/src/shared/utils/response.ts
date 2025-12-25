@@ -18,13 +18,6 @@ export interface CorsHeaders {
 }
 
 export function getCorsHeaders(origin: string): CorsHeaders | undefined {
-  // デバッグ用ログ（開発環境のみ）
-  if (process.env.STAGE === "local" || process.env.USE_MOCK_AUTH === "true") {
-    console.log("[CORS] Request origin:", origin);
-    console.log("[CORS] Allowed origins:", ALLOWED_ORIGINS);
-    console.log("[CORS] Match:", ALLOWED_ORIGINS.includes(origin));
-  }
-
   if (ALLOWED_ORIGINS.includes(origin)) {
     return {
       "Access-Control-Allow-Origin": origin,

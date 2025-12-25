@@ -16,42 +16,26 @@ components:
       type: string
       enum:
         - VALIDATION_FAILED
-        - INVALID_FILE_TYPE
         - INVALID_PARAMETER
-        - INVALID_INPUT
         - MISSING_PARAMETER
-        - TOKEN_EXPIRED
         - PERMISSION_DENIED
         - RESOURCE_NOT_FOUND
-        - DOCUMENT_ALREADY_EXISTS
-        - STATE_CONFLICT
         - INTERNAL_SERVER_ERROR
-        - DB_OPERATION_FAILED
-        - BEDROCK_API_ERROR
-        - S3_OPERATION_FAILED
-        - DOCUMENTS_FILE_EMPTY
         - DOCUMENTS_FILE_TOO_LARGE
         - DOCUMENTS_UNSUPPORTED_FILE_TYPE
-        - DOCUMENTS_INVALID_FILENAME
         - DOCUMENTS_INVALID_FILENAME_LENGTH_LIMIT
         - DOCUMENTS_TAG_LENGTH_LIMIT
-        - DOCUMENTS_TAG_INVALID
         - DOCUMENTS_TAGS_TOO_MANY
         - DOCUMENTS_NOT_FOUND
         - DOCUMENTS_UPLOAD_FAILED
-        - DOCUMENTS_PROCESSING_FAILED
-        - DOCUMENTS_DELETE_FAILED
-        - DOCUMENTS_EXTRACTED_TEXT_EMPTY
         - DOCUMENTS_NOT_READY_FOR_DOWNLOAD
+        - DOCUMENTS_FILENAME_EMPTY
+        - DOCUMENTS_SELECTION_EMPTY
+        - DOCUMENTS_SELECTION_TOO_MANY
         - CHAT_SESSION_NAME_TOO_LONG
         - CHAT_SESSION_NAME_EMPTY
         - CHAT_QUERY_EMPTY
         - CHAT_QUERY_TOO_LONG
-        - CHAT_SESSION_NOT_FOUND
-        - CHAT_HISTORY_NOT_FOUND
-        - CHAT_BEDROCK_ERROR
-        - CHAT_NO_DOCUMENTS
-        - CHAT_TOO_MANY_MESSAGES
         - CHAT_COMMENT_TOO_LONG
         - CHAT_FEEDBACK_REASONS_INVALID
         - CHAT_FEEDBACK_REASONS_EMPTY
@@ -68,20 +52,15 @@ components:
         fileName:
           type: string
           example: document.pdf
-        uri:
-          type: string
-          example: s3://bucket/key
-        page:
-          type: number
-          example: 1
         score:
           type: number
           example: 0.95
         text:
           type: string
+        documentId:
+          type: string
       required:
         - fileName
-        - uri
     FeedbackType:
       type: string
       enum:
@@ -91,19 +70,9 @@ components:
     ChatSession:
       type: object
       properties:
-        pk:
-          type: string
-        sk:
-          type: string
-        gsi1pk:
-          type: string
-        gsi1sk:
-          type: string
         sessionId:
           type: string
           example: session-123
-        ownerId:
-          type: string
         sessionName:
           type: string
           example: My Session
@@ -117,28 +86,17 @@ components:
           type: string
           format: date-time
       required:
-        - pk
-        - sk
-        - gsi1pk
-        - gsi1sk
         - sessionId
-        - ownerId
         - sessionName
         - createdAt
         - lastMessageAt
     ChatMessage:
       type: object
       properties:
-        pk:
-          type: string
-        sk:
-          type: string
         historyId:
           type: string
           example: msg-123
         sessionId:
-          type: string
-        ownerId:
           type: string
         userQuery:
           type: string
@@ -159,51 +117,115 @@ components:
           type: string
           format: date-time
       required:
-        - pk
-        - sk
         - historyId
         - sessionId
-        - ownerId
         - userQuery
         - aiResponse
         - sourceDocuments
         - feedback
         - createdAt
+    TextUIPart:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - text
+        text:
+          type: string
+      required:
+        - type
+        - text
+    SourceDocumentUIPart:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - source-document
+        sourceId:
+          type: string
+        mediaType:
+          type: string
+        title:
+          type: string
+        filename:
+          type: string
+      required:
+        - type
+        - sourceId
+        - mediaType
+        - title
+    UIMessagePart:
+      oneOf:
+        - $ref: "#/components/schemas/TextUIPart"
+        - $ref: "#/components/schemas/SourceDocumentUIPart"
+      discriminator:
+        propertyName: type
+        mapping:
+          text: "#/components/schemas/TextUIPart"
+          source-document: "#/components/schemas/SourceDocumentUIPart"
+    UIMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+        parts:
+          type: array
+          items:
+            $ref: "#/components/schemas/UIMessagePart"
+      required:
+        - role
+        - parts
     ChatStreamRequest:
       type: object
       properties:
-        query:
-          type: string
-          minLength: 1
-          example: こんにちは
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/UIMessage"
         sessionId:
           type: string
+          maxLength: 100
           example: session-123
         redoHistoryId:
           type: string
+          maxLength: 100
           example: msg-123
       required:
-        - query
+        - messages
+        - sessionId
     SubmitFeedbackRequest:
       type: object
       properties:
         sessionId:
           type: string
+          maxLength: 100
         historyId:
           type: string
+          maxLength: 100
         createdAt:
           type: string
         evaluation:
           type: string
           enum:
+            - NONE
             - GOOD
             - BAD
         comment:
           type: string
+          maxLength: 1000
         reasons:
           type: array
           items:
             type: string
+            maxLength: 50
+          maxItems: 10
       required:
         - sessionId
         - historyId
@@ -215,6 +237,7 @@ components:
         sessionName:
           type: string
           minLength: 1
+          maxLength: 100
       required:
         - sessionName
     GetSessionMessagesQueryParams:
@@ -272,7 +295,7 @@ components:
         sessions:
           type: array
           items:
-            $ref: "#/components/schemas/SessionSummary"
+            $ref: "#/components/schemas/ChatSession"
       required:
         - sessions
     GetSessionMessagesResponse:
@@ -322,6 +345,213 @@ components:
       required:
         - status
         - item
+    ChatStreamErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - VALIDATION_FAILED
+            - INVALID_PARAMETER
+      required:
+        - errorCode
+    SubmitFeedbackErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - CHAT_COMMENT_TOO_LONG
+            - CHAT_FEEDBACK_REASONS_INVALID
+            - VALIDATION_FAILED
+            - INVALID_PARAMETER
+      required:
+        - errorCode
+    UpdateSessionNameErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - CHAT_SESSION_NAME_EMPTY
+            - CHAT_SESSION_NAME_TOO_LONG
+            - RESOURCE_NOT_FOUND
+            - PERMISSION_DENIED
+            - VALIDATION_FAILED
+            - INVALID_PARAMETER
+      required:
+        - errorCode
+    GetSessionMessagesErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - RESOURCE_NOT_FOUND
+            - PERMISSION_DENIED
+      required:
+        - errorCode
+    DeleteSessionErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - RESOURCE_NOT_FOUND
+            - PERMISSION_DENIED
+      required:
+        - errorCode
+    TextStartChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - text-start
+        id:
+          type: string
+      required:
+        - type
+        - id
+    TextDeltaChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - text-delta
+        id:
+          type: string
+        delta:
+          type: string
+      required:
+        - type
+        - id
+        - delta
+    TextEndChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - text-end
+        id:
+          type: string
+      required:
+        - type
+        - id
+    SourceDocumentChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - source-document
+        sourceId:
+          type: string
+        mediaType:
+          type: string
+        title:
+          type: string
+        filename:
+          type: string
+      required:
+        - type
+        - sourceId
+        - mediaType
+        - title
+    ErrorChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - error
+        errorText:
+          type: string
+      required:
+        - type
+        - errorText
+    DataChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          pattern: ^data-.+$
+        id:
+          type: string
+        data:
+          nullable: true
+      required:
+        - type
+    SessionInfoPayload:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          example: session-123
+        historyId:
+          type: string
+          example: msg-456
+        createdAt:
+          type: string
+          format: date-time
+          example: 2024-01-01T00:00:00Z
+      required:
+        - sessionId
+        - historyId
+        - createdAt
+    SessionInfoDataChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - data-session_info
+        id:
+          type: string
+        data:
+          $ref: "#/components/schemas/SessionInfoPayload"
+      required:
+        - type
+        - data
+    CitationsPayload:
+      type: object
+      properties:
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceDocument"
+      required:
+        - citations
+    CitationsDataChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - data-citations
+        id:
+          type: string
+        data:
+          $ref: "#/components/schemas/CitationsPayload"
+      required:
+        - type
+        - data
+    UIMessageChunk:
+      anyOf:
+        - $ref: "#/components/schemas/TextStartChunk"
+        - $ref: "#/components/schemas/TextDeltaChunk"
+        - $ref: "#/components/schemas/TextEndChunk"
+        - $ref: "#/components/schemas/SourceDocumentChunk"
+        - $ref: "#/components/schemas/ErrorChunk"
+        - $ref: "#/components/schemas/SessionInfoDataChunk"
+        - $ref: "#/components/schemas/CitationsDataChunk"
+        - $ref: "#/components/schemas/DataChunk"
     DocumentStatus:
       type: string
       enum:
@@ -332,60 +562,6 @@ components:
         - DELETING
         - DELETED
         - DELETE_FAILED
-    Document:
-      type: object
-      properties:
-        documentId:
-          type: string
-        fileName:
-          type: string
-        contentType:
-          type: string
-        fileSize:
-          type: number
-        tags:
-          type: array
-          items:
-            type: string
-        status:
-          $ref: "#/components/schemas/DocumentStatus"
-        ownerId:
-          type: string
-        s3Key:
-          type: string
-        s3Path:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        tagUpdatedAt:
-          type: string
-          format: date-time
-        uploadUrlExpiresAt:
-          type: string
-        processingStatus:
-          type: string
-        errorMessage:
-          type: string
-        deleteRequested:
-          type: boolean
-        downloadUrl:
-          type: string
-      required:
-        - documentId
-        - fileName
-        - contentType
-        - fileSize
-        - tags
-        - status
-        - ownerId
-        - s3Key
-        - s3Path
-        - createdAt
-        - updatedAt
     DocumentResponse:
       type: object
       properties:
@@ -403,10 +579,6 @@ components:
             type: string
         status:
           $ref: "#/components/schemas/DocumentStatus"
-        s3Key:
-          type: string
-        s3Path:
-          type: string
         createdAt:
           type: string
           format: date-time
@@ -433,8 +605,6 @@ components:
         - fileSize
         - tags
         - status
-        - s3Key
-        - s3Path
         - createdAt
         - updatedAt
     FileMetadata:
@@ -443,11 +613,13 @@ components:
         fileName:
           type: string
           minLength: 1
+          maxLength: 255
         contentType:
           type: string
         fileSize:
           type: number
           minimum: 0
+          maximum: 52428800
       required:
         - fileName
         - contentType
@@ -460,10 +632,13 @@ components:
           items:
             $ref: "#/components/schemas/FileMetadata"
           minItems: 1
+          maxItems: 20
         tags:
           type: array
           items:
             type: string
+            maxLength: 50
+          maxItems: 20
           default: []
       required:
         - files
@@ -474,6 +649,8 @@ components:
           type: array
           items:
             type: string
+            maxLength: 50
+          maxItems: 20
       required:
         - tags
     BatchDeleteRequest:
@@ -483,7 +660,9 @@ components:
           type: array
           items:
             type: string
+            maxLength: 100
           minItems: 1
+          maxItems: 100
       required:
         - documentIds
     GetDocumentsResponse:
@@ -502,6 +681,13 @@ components:
           $ref: "#/components/schemas/DocumentResponse"
       required:
         - document
+    GetDocumentDownloadUrlResponse:
+      type: object
+      properties:
+        downloadUrl:
+          type: string
+      required:
+        - downloadUrl
     UploadRequestResult:
       type: object
       properties:
@@ -554,16 +740,18 @@ components:
           $ref: "#/components/schemas/DocumentResponse"
       required:
         - document
+    ResultStatus:
+      type: string
+      enum:
+        - success
+        - error
     BatchDeleteResult:
       type: object
       properties:
         documentId:
           type: string
         status:
-          type: string
-          enum:
-            - success
-            - error
+          $ref: "#/components/schemas/ResultStatus"
         errorCode:
           type: string
       required:
@@ -575,20 +763,7 @@ components:
         results:
           type: array
           items:
-            type: object
-            properties:
-              documentId:
-                type: string
-              status:
-                type: string
-                enum:
-                  - success
-                  - error
-              errorCode:
-                type: string
-            required:
-              - documentId
-              - status
+            $ref: "#/components/schemas/BatchDeleteResult"
       required:
         - results
     UpdateTagsResponse:
@@ -598,45 +773,91 @@ components:
           $ref: "#/components/schemas/DocumentResponse"
       required:
         - document
-    DocumentMetadata:
+    UploadRequestErrorResponse:
       type: object
       properties:
-        documentId:
+        errorCode:
           type: string
-        fileName:
-          type: string
-        ownerId:
-          type: string
-        chunkIndex:
-          type: number
-        totalChunks:
-          type: number
-        text:
-          type: string
-        createdAt:
-          type: string
+          enum:
+            - DOCUMENTS_SELECTION_EMPTY
+            - DOCUMENTS_TAG_LENGTH_LIMIT
+            - DOCUMENTS_TAGS_TOO_MANY
+            - DOCUMENTS_FILE_TOO_LARGE
+            - DOCUMENTS_INVALID_FILENAME_LENGTH_LIMIT
+            - DOCUMENTS_UNSUPPORTED_FILE_TYPE
+            - DOCUMENTS_FILENAME_EMPTY
+            - VALIDATION_FAILED
+            - INVALID_PARAMETER
       required:
-        - documentId
-        - fileName
-        - ownerId
-        - chunkIndex
-        - totalChunks
-        - text
-        - createdAt
-      additionalProperties:
-        anyOf:
-          - type: string
-          - type: number
-          - type: boolean
-          - type: array
-            items:
-              type: string
+        - errorCode
+    UpdateTagsErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - DOCUMENTS_TAG_LENGTH_LIMIT
+            - DOCUMENTS_TAGS_TOO_MANY
+            - RESOURCE_NOT_FOUND
+            - PERMISSION_DENIED
+            - VALIDATION_FAILED
+            - INVALID_PARAMETER
+      required:
+        - errorCode
+    BatchDeleteErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - DOCUMENTS_SELECTION_EMPTY
+            - VALIDATION_FAILED
+            - INVALID_PARAMETER
+      required:
+        - errorCode
+    GetDocumentErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - DOCUMENTS_NOT_FOUND
+            - PERMISSION_DENIED
+      required:
+        - errorCode
+    GetDocumentDownloadUrlErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - DOCUMENTS_NOT_FOUND
+            - PERMISSION_DENIED
+            - DOCUMENTS_NOT_READY_FOR_DOWNLOAD
+      required:
+        - errorCode
+    DeleteDocumentErrorResponse:
+      type: object
+      properties:
+        errorCode:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - RESOURCE_NOT_FOUND
+            - PERMISSION_DENIED
+      required:
+        - errorCode
   parameters: {}
 paths:
   /chat/stream:
     post:
       summary: Chat Streaming
-      description: Send a query and receive a streaming response.
+      description:
+        Send messages and receive a streaming response using Vercel AI SDK
+        v3.x UI Message Stream Protocol (NDJSON format).
       security:
         - BearerAuth: []
       requestBody:
@@ -646,19 +867,51 @@ paths:
               $ref: "#/components/schemas/ChatStreamRequest"
       responses:
         "200":
-          description: Successful stream response (SSE)
-          content:
-            text/event-stream:
+          description:
+            Successful stream response (NDJSON - Newline Delimited JSON). Each
+            line is a UIMessageChunk object.
+          headers:
+            X-Vercel-AI-UI-Message-Stream:
               schema:
                 type: string
-                description: "Server-Sent Events stream. Events: 'citations', 'text', 'done',
-                  'error'"
+                enum:
+                  - v1
+                description: UI Message Stream Protocol version
+              required: true
+              description: UI Message Stream Protocol version
+            X-Accel-Buffering:
+              schema:
+                type: string
+                enum:
+                  - no
+                description: Disable proxy buffering
+              required: true
+              description: Disable proxy buffering
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                  - no-cache
+                description: Disable caching
+              required: true
+              description: Disable caching
+          content:
+            text/plain; charset=utf-8:
+              schema:
+                type: string
+                description:
+                  NDJSON stream of UIMessageChunk objects. Each line contains a JSON
+                  object with a 'type' field.
+                example: |-
+                  {"type":"text-start","id":"text-123"}
+                  {"type":"text-delta","id":"text-123","delta":"Hello"}
+                  {"type":"text-end","id":"text-123"}
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ChatStreamErrorResponse"
         "401":
           description: Unauthorized
           content:
@@ -667,12 +920,6 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
           description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Not Found
           content:
             application/json:
               schema:
@@ -705,21 +952,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/SubmitFeedbackErrorResponse"
         "401":
           description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Not Found
           content:
             application/json:
               schema:
@@ -742,26 +977,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetSessionsResponse"
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Not Found
           content:
             application/json:
               schema:
@@ -810,25 +1027,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/GetSessionMessagesErrorResponse"
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/GetSessionMessagesErrorResponse"
         "500":
           description: Internal Server Error
           content:
@@ -862,25 +1067,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/UpdateSessionNameErrorResponse"
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/UpdateSessionNameErrorResponse"
         "500":
           description: Internal Server Error
           content:
@@ -904,26 +1097,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeleteSessionResponse"
-        "400":
-          description: Bad Request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteSessionErrorResponse"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /documents:
+    get:
+      summary: List Documents
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDocumentsResponse"
+        "401":
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -934,9 +1133,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-  /documents/upload-request:
+  /documents/upload:
     post:
       summary: Request Upload URL
+      description: S3への署名付きアップロードURLを発行します。
       security:
         - BearerAuth: []
       requestBody:
@@ -956,67 +1156,36 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/UploadRequestErrorResponse"
         "500":
           description: Internal Server Error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-  /documents:
-    get:
-      summary: List Documents
+  /documents/batch-delete:
+    post:
+      summary: Batch Delete Documents
       security:
         - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchDeleteRequest"
       responses:
         "200":
-          description: List of documents
+          description: Batch delete completed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetDocumentsResponse"
+                $ref: "#/components/schemas/BatchDeleteResponse"
         "400":
           description: Bad Request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/BatchDeleteErrorResponse"
         "500":
           description: Internal Server Error
           content:
@@ -1046,25 +1215,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/GetDocumentErrorResponse"
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/GetDocumentErrorResponse"
         "500":
           description: Internal Server Error
           content:
@@ -1093,25 +1250,49 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/DeleteDocumentErrorResponse"
         "404":
           description: Not Found
           content:
             application/json:
               schema:
+                $ref: "#/components/schemas/DeleteDocumentErrorResponse"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /documents/{id}/download-url:
+    get:
+      summary: Get Document Download URL
+      security:
+        - BearerAuth: []
+      parameters:
+        - schema:
+            type: string
+          required: true
+          name: id
+          in: path
+      responses:
+        "200":
+          description: Download URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDocumentDownloadUrlResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDocumentDownloadUrlErrorResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetDocumentDownloadUrlErrorResponse"
         "500":
           description: Internal Server Error
           content:
@@ -1146,25 +1327,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/UpdateTagsErrorResponse"
         "404":
           description: Not Found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/UpdateTagsErrorResponse"
         "500":
           description: Internal Server Error
           content:

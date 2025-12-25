@@ -1,12 +1,12 @@
 // infrastructure/src/shared/types/pinecone.ts
 // Pinecone型定義
 
-import { DocumentMetadata } from "./document";
+import type { DocumentMetadataEntity } from "../schemas/entities/document.entity";
 
 /**
  * Pineconeベクター検索結果のメタデータ型
  */
-export interface VectorSearchMetadata extends DocumentMetadata {
+export interface VectorSearchMetadata extends DocumentMetadataEntity {
   bucket: string;
   key: string;
 }
@@ -26,5 +26,5 @@ export interface VectorSearchResult {
 export interface PineconeVector {
   id: string;
   values: number[];
-  metadata: DocumentMetadata;
+  metadata: DocumentMetadataEntity;
 }

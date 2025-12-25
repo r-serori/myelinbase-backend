@@ -7,67 +7,67 @@
 
 ## **責務 (Responsibilities)**
 
-1. **ドキュメント管理 (CRUD)**  
-   * ユーザーごとのドキュメント一覧取得。  
-   * ドキュメント詳細情報の取得。  
-   * ドキュメントの削除（論理削除フラグの更新）。  
-   * タグ情報の更新。  
-2. **ファイルアップロード支援**  
-   * クライアントがS3に直接ファイルをアップロードするための「署名付きURL (Presigned URL)」の発行。  
-   * アップロード予定のメタデータをDynamoDBに先行保存（ステータス: PENDING\_UPLOAD）。  
-3. **セキュリティ**  
-   * Cognitoによる認証（Authorization ヘッダーの検証）。  
-   * ユーザーごとのデータ分離（ownerId によるアクセス制御）。  
-   * ファイル名、サイズ、拡張子のバリデーション。
+1. **ドキュメント管理 (CRUD)**
+   - ユーザーごとのドキュメント一覧取得。
+   - ドキュメント詳細情報の取得。
+   - ドキュメントの削除（論理削除フラグの更新）。
+   - タグ情報の更新。
+2. **ファイルアップロード支援**
+   - クライアントがS3に直接ファイルをアップロードするための「署名付きURL (Presigned URL)」の発行。
+   - アップロード予定のメタデータをDynamoDBに先行保存（ステータス: PENDING_UPLOAD）。
+3. **セキュリティ**
+   - Cognitoによる認証（Authorization ヘッダーの検証）。
+   - ユーザーごとのデータ分離（ownerId によるアクセス制御）。
+   - ファイル名、サイズ、拡張子のバリデーション。
 
 ## **環境変数 (Environment Variables)**
 
-| 変数名 | 必須 | デフォルト値 | 説明 |
-| :---- | :---- | :---- | :---- |
-| TABLE\_NAME | **Yes** | \- | ドキュメントメタデータを保存するDynamoDBテーブル名 |
-| BUCKET\_NAME | **Yes** | \- | 実ファイルを保存するS3バケット名 |
-| PRESIGNED\_URL\_EXPIRY | No | 900 | 署名付きURLの有効期限（秒）。デフォルト15分。 |
-| USE\_MOCK\_AUTH | No | false | trueの場合、Cognito検証をスキップしダミーユーザーとして動作（ローカル開発用） |
+| 変数名               | 必須    | デフォルト値 | 説明                                               |
+| :------------------- | :------ | :----------- | :------------------------------------------------- |
+| TABLE_NAME           | **Yes** | \-           | ドキュメントメタデータを保存するDynamoDBテーブル名 |
+| BUCKET_NAME          | **Yes** | \-           | 実ファイルを保存するS3バケット名                   |
+| PRESIGNED_URL_EXPIRY | No      | 900          | 署名付きURLの有効期限（秒）。デフォルト15分。      |
+| STAGE                | No      | local        | 環境（local, dev, prod）                           |
 
 ## **入出力インターフェース**
 
-### **1\. アップロードリクエスト (POST /documents/upload-request)**
+### **1\. アップロードリクエスト (POST /documents/upload)**
 
 S3へのアップロード用URLを発行します。クライアントはこのURLに対してファイルをPUTします。
 
 **リクエスト:**
 
-* Content-Type: application/json
+- Content-Type: application/json
 
 ```json
-{  
-  "files": [  
-    {  
-      "fileName": "sample.pdf",  
-      "contentType": "application/pdf",  
-      "fileSize": 102400  
-    }  
-  ],  
-  "tags": ["重要", "2024年度"]  
+{
+  "files": [
+    {
+      "fileName": "sample.pdf",
+      "contentType": "application/pdf",
+      "fileSize": 102400
+    }
+  ],
+  "tags": ["重要", "2024年度"]
 }
 ```
 
 **レスポンス (202 Accepted):**
 
 ```json
-{  
-  "results": [  
-    {  
-      "status": "success",  
-      "fileName": "sample.pdf",  
-      "data": {  
-        "documentId": "uuid-v4",  
-        "uploadUrl": "[https://s3.amazonaws.com/](https://s3.amazonaws.com/)...", // このURLにPUTする  
-        "expiresIn": 900,  
-        "s3Key": "uploads/user-id/uuid/sample.pdf"  
-      }  
-    }  
-  ]  
+{
+  "results": [
+    {
+      "status": "success",
+      "fileName": "sample.pdf",
+      "data": {
+        "documentId": "uuid-v4",
+        "uploadUrl": "[https://s3.amazonaws.com/](https://s3.amazonaws.com/)...", // このURLにPUTする
+        "expiresIn": 900,
+        "s3Key": "uploads/user-id/uuid/sample.pdf"
+      }
+    }
+  ]
 }
 ```
 
@@ -78,18 +78,18 @@ S3へのアップロード用URLを発行します。クライアントはこの
 **レスポンス (200 OK):**
 
 ```json
-{  
-  "documents": [  
-    {  
-      "documentId": "doc-1",  
-      "fileName": "sample.pdf",  
-      "status": "COMPLETED", // PENDING\_UPLOAD, PROCESSING, COMPLETED, FAILED  
-      "fileSize": 102400,  
-      "tags": ["重要"],  
-      "createdAt": "2024-01-01T00:00:00Z",  
-      "updatedAt": "2024-01-01T00:05:00Z"  
-    }  
-  ]  
+{
+  "documents": [
+    {
+      "documentId": "doc-1",
+      "fileName": "sample.pdf",
+      "status": "COMPLETED", // PENDING\_UPLOAD, PROCESSING, COMPLETED, FAILED
+      "fileSize": 102400,
+      "tags": ["重要"],
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2024-01-01T00:05:00Z"
+    }
+  ]
 }
 ```
 
@@ -100,12 +100,12 @@ S3へのアップロード用URLを発行します。クライアントはこの
 **レスポンス (200 OK):**
 
 ```json
-{  
-  "document": {  
-    "documentId": "doc-1",  
-    // ... (一覧取得時と同じフィールド)  
-    "s3Path": "s3://bucket/uploads/..."  
-  }  
+{
+  "document": {
+    "documentId": "doc-1",
+    // ... (一覧取得時と同じフィールド)
+    "s3Path": "s3://bucket/uploads/..."
+  }
 }
 ```
 
@@ -129,12 +129,12 @@ URLの有効期限は1時間です。
 **レスポンス (202 Accepted):**
 
 ```json
-{  
-  "document": {  
-    "documentId": "doc-1",  
-    "status": "DELETING",  
-    "deleteRequested": true  
-  }  
+{
+  "document": {
+    "documentId": "doc-1",
+    "status": "DELETING",
+    "deleteRequested": true
+  }
 }
 ```
 
@@ -145,19 +145,19 @@ URLの有効期限は1時間です。
 **リクエスト:**
 
 ```json
-{  
-  "tags": ["新しいタグ", "更新済み"]  
+{
+  "tags": ["新しいタグ", "更新済み"]
 }
 ```
 
 **レスポンス (200 OK):**
 
 ```json
-{  
-  "document": {  
-    // ... 更新後のドキュメント情報  
-    "tags": ["新しいタグ", "更新済み"]  
-  }  
+{
+  "document": {
+    // ... 更新後のドキュメント情報
+    "tags": ["新しいタグ", "更新済み"]
+  }
 }
 ```
 
@@ -167,7 +167,7 @@ URLの有効期限は1時間です。
 
 **リクエスト:**
 
-* Content-Type: application/json
+- Content-Type: application/json
 
 ```json
 {
@@ -195,16 +195,16 @@ URLの有効期限は1時間です。
 
 ## **内部処理フロー (Upload Request)**
 
-1. **バリデーション**: ファイル名、サイズ、拡張子（PDF, TXT, MD, CSVのみ許可）をチェック。  
-2. **重複チェック**: 同名ファイルが存在する場合、古いものを削除フラグ付きでマーク。  
-3. **ID生成**: uuid を生成し、S3キー (uploads/{userId}/{docId}/{fileName}) を決定。  
-4. **DB保存**: ステータス PENDING\_UPLOAD でDynamoDBにメタデータを保存。  
-5. **署名**: AWS SDKを用いてS3 PutObject 用の署名付きURLを生成。  
+1. **バリデーション**: ファイル名、サイズ、拡張子（PDF, TXT, MD, CSVのみ許可）をチェック。
+2. **重複チェック**: 同名ファイルが存在する場合、古いものを削除フラグ付きでマーク。
+3. **ID生成**: uuid を生成し、S3キー (uploads/{userId}/{docId}/{fileName}) を決定。
+4. **DB保存**: ステータス PENDING_UPLOAD でDynamoDBにメタデータを保存。
+5. **署名**: AWS SDKを用いてS3 PutObject 用の署名付きURLを生成。
 6. **返却**: クライアントにURLとメタデータを返却。
 
 ## **エラーハンドリング**
 
-* **400 Bad Request**: パラメータ不足、不正なファイル形式、サイズ超過など。  
-* **401 Unauthorized**: 認証トークンが無効。  
-* **404 Not Found**: 指定されたIDのドキュメントが存在しない、またはアクセス権がない。  
-* **500 Internal Server Error**: DynamoDB/S3への接続エラーなど。
+- **400 Bad Request**: パラメータ不足、不正なファイル形式、サイズ超過など。
+- **401 Unauthorized**: 認証トークンが無効。
+- **404 Not Found**: 指定されたIDのドキュメントが存在しない、またはアクセス権がない。
+- **500 Internal Server Error**: DynamoDB/S3への接続エラーなど。

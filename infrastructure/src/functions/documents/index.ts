@@ -1,36 +1,35 @@
-// src/functions/documents/index.ts
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { randomUUID } from "crypto";
 
 import {
-  PutCommand,
-  GetCommand,
-  UpdateCommand,
-  QueryCommand,
-} from "@aws-sdk/lib-dynamodb";
-import { createDynamoDBClient } from "../../shared/utils/dynamodb";
-import {
-  createS3Client,
-  generateUploadUrl,
-  generateDownloadUrl,
-  buildS3Uri,
-} from "../../shared/utils/s3";
-import {
-  FileMetadata,
-  DocumentResponse,
-  GetDocumentsResponse,
-  GetDocumentResponse,
-  UploadRequestRequest,
-  UploadRequestRequestSchema,
-  UploadRequestResponse,
-  UploadRequestFileResult,
-  DeleteDocumentResponse,
-  UpdateTagsRequest,
-  UpdateTagsRequestSchema,
-  UpdateTagsResponse,
-  BatchDeleteRequest,
+  BatchDeleteRequestDto,
   BatchDeleteRequestSchema,
-  BatchDeleteResponse,
-  BatchDeleteResult,
-} from "../../shared/types/document";
+  BatchDeleteResponseDto,
+  BatchDeleteResultDto,
+  DeleteDocumentResponseDto,
+  DocumentResponseDto,
+  FileMetadataDto,
+  GetDocumentResponseDto,
+  GetDocumentsResponseDto,
+  ResultStatusSchema,
+  UpdateTagsRequestDto,
+  UpdateTagsRequestSchema,
+  UpdateTagsResponseDto,
+  UploadRequestFileResultDto,
+  UploadRequestRequestDto,
+  UploadRequestRequestSchema,
+  UploadRequestResponseDto,
+  UploadRequestResultDto,
+} from "../../shared/schemas/dto/document.dto";
+import {
+  DocumentEntity,
+  DocumentStatusSchema,
+} from "../../shared/schemas/entities/document.entity";
 import { ErrorCode } from "../../shared/types/error-code";
 import {
   apiHandler,
@@ -38,7 +37,14 @@ import {
   logger,
   validateJson,
 } from "../../shared/utils/api-handler";
-import { randomUUID } from "crypto";
+import { toDocumentDTO } from "../../shared/utils/dto-mapper";
+import { createDynamoDBClient } from "../../shared/utils/dynamodb";
+import {
+  buildS3Uri,
+  createS3Client,
+  generateDownloadUrl,
+  generateUploadUrl,
+} from "../../shared/utils/s3";
 
 const TABLE_NAME = process.env.TABLE_NAME!;
 const BUCKET_NAME = process.env.BUCKET_NAME!;
@@ -46,7 +52,7 @@ const PRESIGNED_URL_EXPIRY = parseInt(
   process.env.PRESIGNED_URL_EXPIRY || "900",
   10
 );
-const USE_MOCK_AUTH = process.env.USE_MOCK_AUTH === "true";
+const IS_LOCAL_STAGE = process.env.STAGE! === "local";
 
 const docClient = createDynamoDBClient();
 const s3Client = createS3Client();
@@ -56,7 +62,7 @@ export const handler = apiHandler(async (event) => {
   const ownerId = extractOwnerId(event);
 
   if (httpMethod === "GET" && path === "/documents") {
-    const response: GetDocumentsResponse = await getDocuments(ownerId);
+    const response = await getDocuments(ownerId);
     return response;
   }
 
@@ -76,16 +82,13 @@ export const handler = apiHandler(async (event) => {
     const documentId = pathParameters?.id;
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
-    const response: GetDocumentResponse = await getDocumentById(
-      documentId,
-      ownerId
-    );
+    const response = await getDocumentById(documentId, ownerId);
     return response;
   }
 
-  if (httpMethod === "POST" && path === "/documents/upload-request") {
+  if (httpMethod === "POST" && path === "/documents/upload") {
     const body = validateJson(event.body, UploadRequestRequestSchema);
-    const response: UploadRequestResponse = await uploadRequest(body, ownerId);
+    const response = await uploadRequest(body, ownerId);
     return { statusCode: 202, body: response };
   }
 
@@ -93,19 +96,13 @@ export const handler = apiHandler(async (event) => {
     const documentId = pathParameters?.id;
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
-    const response: DeleteDocumentResponse = await deleteDocument(
-      documentId,
-      ownerId
-    );
+    const response = await deleteDocument(documentId, ownerId);
     return { statusCode: 202, body: response };
   }
 
   if (httpMethod === "POST" && path === "/documents/batch-delete") {
     const body = validateJson(event.body, BatchDeleteRequestSchema);
-    const response: BatchDeleteResponse = await batchDeleteDocuments(
-      body,
-      ownerId
-    );
+    const response = await batchDeleteDocuments(body, ownerId);
     return { statusCode: 200, body: response };
   }
 
@@ -114,11 +111,7 @@ export const handler = apiHandler(async (event) => {
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
     const body = validateJson(event.body, UpdateTagsRequestSchema);
-    const response: UpdateTagsResponse = await updateTags(
-      documentId,
-      body,
-      ownerId
-    );
+    const response = await updateTags(documentId, body, ownerId);
     return response;
   }
 
@@ -126,14 +119,10 @@ export const handler = apiHandler(async (event) => {
 });
 
 function extractOwnerId(event: any): string {
-  if (USE_MOCK_AUTH) {
-    const authHeader =
-      event.headers?.Authorization || event.headers?.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      return "user-001";
-    }
+  if (IS_LOCAL_STAGE) {
     return "user-001";
   }
+
   const claims = event.requestContext?.authorizer?.claims;
   const ownerId = claims?.sub;
 
@@ -149,20 +138,24 @@ function extractOwnerId(event: any): string {
 /**
  * ドキュメント一覧取得 GET /documents
  */
-async function getDocuments(ownerId: string): Promise<GetDocumentsResponse> {
+async function getDocuments(ownerId: string): Promise<GetDocumentsResponseDto> {
   const command = new QueryCommand({
     TableName: TABLE_NAME,
     IndexName: "OwnerIndex",
+    FilterExpression: "#status <> :deleting AND deleteRequested <> :true",
     KeyConditionExpression: "#owner = :ownerId",
-    ExpressionAttributeNames: { "#owner": "ownerId" },
-    ExpressionAttributeValues: { ":ownerId": ownerId },
+    ExpressionAttributeNames: { "#owner": "ownerId", "#status": "status" },
+    ExpressionAttributeValues: {
+      ":ownerId": ownerId,
+      ":deleting": "DELETING",
+      ":true": true,
+    },
     ScanIndexForward: false,
   });
 
   const response = await docClient.send(command);
-  const documents = (response.Items || []).map(
-    excludeInternalFields
-  ) as DocumentResponse[];
+  const entities = (response.Items || []) as DocumentEntity[];
+  const documents: DocumentResponseDto[] = entities.map(toDocumentDTO);
   return { documents };
 }
 
@@ -179,7 +172,7 @@ async function getDownloadUrl(
   });
 
   const response = await docClient.send(command);
-  const item = response.Item;
+  const item = response.Item as DocumentEntity;
 
   if (!item) throw new AppError(404, ErrorCode.DOCUMENTS_NOT_FOUND);
 
@@ -189,10 +182,11 @@ async function getDownloadUrl(
       ownerId,
       actualOwnerId: item.ownerId,
     });
-    throw new AppError(404);
+    // セキュリティ上の理由で404を返すが、エラーコードでPERMISSION_DENIEDを明示
+    throw new AppError(404, ErrorCode.PERMISSION_DENIED);
   }
 
-  if (item.status !== "COMPLETED" || !item.s3Key) {
+  if (item.status !== DocumentStatusSchema.enum.COMPLETED || !item.s3Key) {
     throw new AppError(400, ErrorCode.DOCUMENTS_NOT_READY_FOR_DOWNLOAD);
   }
 
@@ -200,10 +194,7 @@ async function getDownloadUrl(
 
   const TEXT_TYPES = ["text/markdown", "text/x-markdown", "text/plain"];
 
-  if (
-    TEXT_TYPES.includes(item.contentType) ||
-    item.fileName.toLowerCase().endsWith(".md")
-  ) {
+  if (TEXT_TYPES.includes(item.contentType)) {
     if (!responseContentType.includes("charset")) {
       responseContentType = `${responseContentType}; charset=utf-8`;
     }
@@ -225,14 +216,14 @@ async function getDownloadUrl(
 async function getDocumentById(
   documentId: string,
   ownerId: string
-): Promise<GetDocumentResponse> {
+): Promise<GetDocumentResponseDto> {
   const command = new GetCommand({
     TableName: TABLE_NAME,
     Key: { documentId },
   });
 
   const response = await docClient.send(command);
-  const item = response.Item;
+  const item = response.Item as DocumentEntity;
 
   if (!item) throw new AppError(404, ErrorCode.DOCUMENTS_NOT_FOUND);
 
@@ -242,10 +233,11 @@ async function getDocumentById(
       ownerId,
       actualOwnerId: item.ownerId,
     });
-    throw new AppError(404);
+    // セキュリティ上の理由で404を返すが、エラーコードでPERMISSION_DENIEDを明示
+    throw new AppError(404, ErrorCode.PERMISSION_DENIED);
   }
 
-  const document = excludeInternalFields(item) as DocumentResponse;
+  const document = toDocumentDTO(item);
 
   return { document };
 }
@@ -256,7 +248,7 @@ async function getDocumentById(
 async function deleteDocument(
   documentId: string,
   ownerId: string
-): Promise<DeleteDocumentResponse> {
+): Promise<DeleteDocumentResponseDto> {
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
     Key: { documentId },
@@ -285,9 +277,7 @@ async function deleteDocument(
     });
   }
 
-  const document = excludeInternalFields(
-    response.Attributes
-  ) as DocumentResponse;
+  const document = toDocumentDTO(response.Attributes as DocumentEntity);
   return { document };
 }
 
@@ -295,18 +285,18 @@ async function deleteDocument(
  * ドキュメント一括削除 POST /documents/batch-delete
  */
 async function batchDeleteDocuments(
-  body: BatchDeleteRequest,
+  body: BatchDeleteRequestDto,
   ownerId: string
-): Promise<BatchDeleteResponse> {
+): Promise<BatchDeleteResponseDto> {
   const { documentIds } = body;
 
-  const results: BatchDeleteResult[] = await Promise.all(
+  const results: BatchDeleteResultDto[] = await Promise.all(
     documentIds.map(async (documentId) => {
       try {
         await deleteDocument(documentId, ownerId);
         return {
           documentId,
-          status: "success",
+          status: ResultStatusSchema.enum.success,
         };
       } catch (error) {
         logger("ERROR", "Failed to delete document in batch", {
@@ -316,7 +306,7 @@ async function batchDeleteDocuments(
         });
         return {
           documentId,
-          status: "error",
+          status: ResultStatusSchema.enum.error,
           errorCode: ErrorCode.INTERNAL_SERVER_ERROR,
         };
       }
@@ -331,9 +321,9 @@ async function batchDeleteDocuments(
  */
 async function updateTags(
   documentId: string,
-  body: UpdateTagsRequest,
+  body: UpdateTagsRequestDto,
   ownerId: string
-): Promise<UpdateTagsResponse> {
+): Promise<UpdateTagsResponseDto> {
   const { tags } = body;
 
   const sanitizedTags = sanitizeTags(tags);
@@ -354,7 +344,8 @@ async function updateTags(
   });
 
   const response = await docClient.send(command);
-  if (!response.Attributes) {
+  const item = response.Attributes as DocumentEntity;
+  if (!item) {
     throw new AppError(500, ErrorCode.INTERNAL_SERVER_ERROR, {
       documentId,
       ownerId,
@@ -362,25 +353,23 @@ async function updateTags(
       error: new Error("DynamoDB update succeeded but returned no attributes"),
     });
   }
-  const document = excludeInternalFields(
-    response.Attributes
-  ) as DocumentResponse;
+  const document = toDocumentDTO(item);
   return { document };
 }
 
 /**
- * ドキュメントアップロードリクエスト POST /documents/upload-request
+ * ドキュメントアップロードリクエスト POST /documents/upload
  */
 async function uploadRequest(
-  body: UploadRequestRequest,
+  body: UploadRequestRequestDto,
   ownerId: string
-): Promise<UploadRequestResponse> {
+): Promise<UploadRequestResponseDto> {
   const { files, tags } = body;
 
   const sanitizedTags = sanitizeTags(tags);
 
-  const results: UploadRequestFileResult[] = await Promise.all(
-    files.map(async (file: FileMetadata, index: number) => {
+  const results: UploadRequestFileResultDto[] = await Promise.all(
+    files.map(async (file: FileMetadataDto) => {
       try {
         const duplicateDocs = await docClient.send(
           new QueryCommand({
@@ -396,8 +385,17 @@ async function uploadRequest(
         );
 
         if (duplicateDocs.Items && duplicateDocs.Items.length > 0) {
-          const oldDoc = duplicateDocs.Items[0];
-          await markDocumentForDeletion(oldDoc.documentId, ownerId);
+          const activeDocs = duplicateDocs.Items.filter(
+            (doc) =>
+              doc.status !== DocumentStatusSchema.enum.DELETING &&
+              !doc.deleteRequested
+          );
+
+          await Promise.all(
+            activeDocs.map((oldDoc) =>
+              markDocumentForDeletion(oldDoc.documentId, ownerId)
+            )
+          );
         }
 
         const uploadData = await createUploadRequest(
@@ -407,7 +405,7 @@ async function uploadRequest(
         );
 
         return {
-          status: "success" as const,
+          status: ResultStatusSchema.enum.success,
           fileName: file.fileName,
           data: uploadData,
         };
@@ -419,7 +417,7 @@ async function uploadRequest(
           error: error,
         });
         return {
-          status: "error" as const,
+          status: ResultStatusSchema.enum.error,
           fileName: file.fileName,
           errorCode: ErrorCode.DOCUMENTS_UPLOAD_FAILED,
         };
@@ -448,7 +446,7 @@ async function markDocumentForDeletion(documentId: string, ownerId: string) {
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: {
         ":true": true,
-        ":deleting": "DELETING",
+        ":deleting": DocumentStatusSchema.enum.DELETING,
         ":now": new Date().toISOString(),
         ":ownerId": ownerId,
         ":active": "ACTIVE",
@@ -461,18 +459,18 @@ async function markDocumentForDeletion(documentId: string, ownerId: string) {
  * ドキュメントアップロードリクエストを作成
  */
 async function createUploadRequest(
-  file: FileMetadata,
+  file: FileMetadataDto,
   tags: string[],
   ownerId: string
-) {
+): Promise<UploadRequestResultDto> {
   const documentId = randomUUID();
-  const s3Key = `uploads/${ownerId}/${documentId}/${file.fileName}`;
+  const s3Key = `uploads/${ownerId}/${documentId}`;
   const s3Path = buildS3Uri(BUCKET_NAME, s3Key);
   const now = new Date().toISOString();
 
   const item = {
     documentId,
-    status: "PENDING_UPLOAD",
+    status: DocumentStatusSchema.enum.PENDING_UPLOAD,
     processingStatus: "ACTIVE",
     fileName: file.fileName,
     contentType: file.contentType,
@@ -505,14 +503,6 @@ async function createUploadRequest(
     expiresIn: PRESIGNED_URL_EXPIRY,
     s3Key,
   };
-}
-
-/**
- * 内部フィールドを除外
- */
-function excludeInternalFields(item: Record<string, any>): DocumentResponse {
-  const { ownerId, ...rest } = item;
-  return rest as DocumentResponse;
 }
 
 /**

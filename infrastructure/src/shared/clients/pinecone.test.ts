@@ -1,23 +1,22 @@
 // 環境変数の設定
 process.env.PINECONE_SECRET_NAME = "test-pinecone-secret";
 
-import { mockClient } from "aws-sdk-client-mock";
 import {
-  SecretsManagerClient,
   GetSecretValueCommand,
+  SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import { Pinecone } from "@pinecone-database/pinecone";
+import { mockClient } from "aws-sdk-client-mock";
+
 import {
-  getPineconeApiKey,
   createPineconeClient,
-  generateVectorId,
-  upsertDocumentVectors,
   deleteDocumentVectors,
+  generateVectorId,
+  getPineconeApiKey,
   searchVectors,
   searchVectorsByOwner,
+  upsertDocumentVectors,
 } from "../../../src/shared/clients/pinecone";
-import { AppError } from "../../../src/shared/utils/api-handler";
-import { ErrorCode } from "../../../src/shared/types/error-code";
 
 // --- Mocks Setup ---
 
@@ -140,7 +139,7 @@ describe("Pinecone Client Utility", () => {
         },
       }));
 
-      await upsertDocumentVectors(client, indexName, vectors);
+      await upsertDocumentVectors(client, vectors);
 
       // index() が正しい名前で呼ばれたか
       // (Mockの実装により検証方法は異なりますが、ここではindexメソッドの呼び出しを確認)
@@ -171,7 +170,7 @@ describe("Pinecone Client Utility", () => {
       const indexName = "test-index";
       const documentId = "doc-123";
 
-      await deleteDocumentVectors(client, indexName, documentId);
+      await deleteDocumentVectors(client, documentId);
 
       expect(mockIndex.deleteMany).toHaveBeenCalledWith({
         filter: {
@@ -205,7 +204,7 @@ describe("Pinecone Client Utility", () => {
         ],
       });
 
-      const results = await searchVectors(client, "idx", queryVector);
+      const results = await searchVectors(client, queryVector);
 
       expect(mockIndex.query).toHaveBeenCalledWith({
         vector: queryVector,
@@ -222,7 +221,7 @@ describe("Pinecone Client Utility", () => {
     it("should handle empty matches", async () => {
       mockIndex.query.mockResolvedValue({ matches: [] });
       const client = new Pinecone({ apiKey: "dummy" });
-      const results = await searchVectors(client, "idx", [0.1]);
+      const results = await searchVectors(client, [0.1]);
       expect(results).toEqual([]);
     });
   });
@@ -233,7 +232,7 @@ describe("Pinecone Client Utility", () => {
       const queryVector = [0.1, 0.2];
       const ownerId = "user-001";
 
-      await searchVectorsByOwner(client, "idx", queryVector, ownerId, 10);
+      await searchVectorsByOwner(client, queryVector, ownerId, 10);
 
       expect(mockIndex.query).toHaveBeenCalledWith({
         vector: queryVector,

@@ -2,10 +2,11 @@
 process.env.STATE_MACHINE_ARN =
   "arn:aws:states:us-east-1:123456789012:stateMachine:TestStateMachine";
 
-import { mockClient } from "aws-sdk-client-mock";
 import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
-import { handler } from "./index";
 import { S3Event } from "aws-lambda";
+import { mockClient } from "aws-sdk-client-mock";
+
+import { handler } from "./index";
 
 // --- Mocks ---
 const sfnMock = mockClient(SFNClient);

@@ -1,4 +1,4 @@
-import { parseS3Uri, buildS3Uri } from "./s3";
+import { buildS3Uri, parseS3Uri } from "./s3";
 
 describe("S3 Utils", () => {
   describe("parseS3Uri", () => {

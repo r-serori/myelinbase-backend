@@ -4,25 +4,27 @@
 process.env.TABLE_NAME = "TestTable";
 process.env.BUCKET_NAME = "TestBucket";
 process.env.PRESIGNED_URL_EXPIRY = "900";
-// 本番同様の認証フローを通す設定に変更
+process.env.STAGE = "prod";
 process.env.USE_MOCK_AUTH = "false";
 process.env.USER_POOL_ID = "us-east-1_dummy";
 process.env.CLIENT_ID = "client_dummy";
 process.env.ALLOWED_ORIGINS = "http://localhost:3000"; // CORS設定
 
-import { mockClient } from "aws-sdk-client-mock";
+import { S3Client } from "@aws-sdk/client-s3";
 import {
   DynamoDBDocumentClient,
-  QueryCommand,
   GetCommand,
-  UpdateCommand,
   PutCommand,
+  QueryCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { S3Client } from "@aws-sdk/client-s3";
-import { handler } from "./index";
-import { ErrorCode } from "../../shared/types/error-code";
 // Presigned URL生成のモック用
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { mockClient } from "aws-sdk-client-mock";
+
+import { ErrorCode } from "../../shared/types/error-code";
+
+import { handler } from "./index";
 
 // --- Mocks Setup ---
 const ddbMock = mockClient(DynamoDBDocumentClient);
@@ -280,9 +282,9 @@ describe("Documents Function (Auth Integration)", () => {
   });
 
   // ==========================================
-  // POST /documents/upload-request (Upload Request)
+  // POST /documents/upload (Upload Request)
   // ==========================================
-  describe("POST /documents/upload-request", () => {
+  describe("POST /documents/upload", () => {
     it("should create presigned URLs and handle duplicate files", async () => {
       // 1. ファイル名重複チェック: fileName='test.pdf' が既存
       ddbMock.on(QueryCommand).resolves({
@@ -310,12 +312,7 @@ describe("Documents Function (Auth Integration)", () => {
         tags: ["tag1"],
       };
 
-      const event = createEvent(
-        "POST",
-        "/documents/upload-request",
-        null,
-        body
-      );
+      const event = createEvent("POST", "/documents/upload", null, body);
       const result: any = await handler(event, {} as any);
 
       expect(result.statusCode).toBe(202);
@@ -356,12 +353,7 @@ describe("Documents Function (Auth Integration)", () => {
           },
         ],
       };
-      const event = createEvent(
-        "POST",
-        "/documents/upload-request",
-        null,
-        body
-      );
+      const event = createEvent("POST", "/documents/upload", null, body);
       const result: any = await handler(event, {} as any);
       expect(result.statusCode).toBe(202);
       const resBody = JSON.parse(result.body);
@@ -380,12 +372,7 @@ describe("Documents Function (Auth Integration)", () => {
         tags: ["tag1"],
       };
 
-      const event = createEvent(
-        "POST",
-        "/documents/upload-request",
-        null,
-        body
-      );
+      const event = createEvent("POST", "/documents/upload", null, body);
       const result: any = await handler(event, {} as any);
 
       expect(result.statusCode).toBe(400);
@@ -404,12 +391,7 @@ describe("Documents Function (Auth Integration)", () => {
         ],
         tags: ["tag1"],
       };
-      const event = createEvent(
-        "POST",
-        "/documents/upload-request",
-        null,
-        body
-      );
+      const event = createEvent("POST", "/documents/upload", null, body);
       const result: any = await handler(event, {} as any);
       expect(result.statusCode).toBe(400);
       const resBody = JSON.parse(result.body);

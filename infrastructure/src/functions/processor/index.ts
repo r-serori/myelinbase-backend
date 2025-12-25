@@ -1,30 +1,30 @@
 // src/functions/processor/index.ts
-import { UpdateCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
-import { createDynamoDBClient } from "../../shared/utils/dynamodb";
-import { createS3Client } from "../../shared/utils/s3";
-import {
-  extractTextFromS3,
-  createSmallToBigChunks,
-  createDocumentMetadata,
-} from "../../shared/utils/text-processing";
+import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+
 import { generateEmbeddings } from "../../shared/clients/bedrock";
 import {
   createPineconeClient,
-  upsertDocumentVectors,
   generateVectorId,
   getPineconeApiKey,
+  upsertDocumentVectors,
 } from "../../shared/clients/pinecone";
 import {
-  ProcessorEvent,
-  ProcessorError,
-  UpdateStatusResponse,
-  ExtractAndChunkResponse,
-  EmbedAndUpsertResponse,
   ChunkData,
+  EmbedAndUpsertResponse,
+  ExtractAndChunkResponse,
+  ProcessorError,
+  ProcessorEvent,
+  UpdateStatusResponse,
 } from "../../shared/types/processor";
+import { createDynamoDBClient } from "../../shared/utils/dynamodb";
+import { createS3Client } from "../../shared/utils/s3";
+import {
+  createDocumentMetadata,
+  createSmallToBigChunks,
+  extractTextFromS3,
+} from "../../shared/utils/text-processing";
 
 const TABLE_NAME = process.env.TABLE_NAME!;
-const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || "documents";
 
 const docClient = createDynamoDBClient();
 const s3Client = createS3Client();
@@ -161,7 +161,7 @@ async function handleEmbedAndUpsert(
     ),
   }));
 
-  await upsertDocumentVectors(pinecone, PINECONE_INDEX_NAME, vectors);
+  await upsertDocumentVectors(pinecone, vectors);
 
   return { documentId, vectorCount: vectors.length };
 }

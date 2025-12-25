@@ -4,11 +4,12 @@ import {
   Context,
 } from "aws-lambda";
 import { ZodSchema } from "zod";
-import { getCorsHeaders } from "./response";
+
 import { ErrorCode } from "../types/error-code";
 
+import { getCorsHeaders } from "./response";
+
 export class AppError extends Error {
-  // detailsを追加: ログに出したい追加情報（ownerIdなど）をここに詰める
   constructor(
     public statusCode: number,
     public errorCode?: ErrorCode,
@@ -38,12 +39,6 @@ function normalizeError(error: any): AppError {
   return unknownError;
 }
 
-/**
- * 構造化ログを出力するヘルパー
- * @param level ログレベル
- * @param message ログメッセージ（定型文推奨）
- * @param context 変動する値（ownerId, fileName, errorオブジェクトなど）
- */
 export function logger(
   level: "WARN" | "ERROR",
   message: string,
@@ -53,7 +48,7 @@ export function logger(
     level,
     message,
     timestamp: new Date().toISOString(),
-    ...context, // contextを展開してフラットなJSONにする
+    ...context,
   };
 
   if (level === "ERROR") {
@@ -64,7 +59,6 @@ export function logger(
   }
 }
 
-// apiHandler内部で使うエラーロガー
 function logApiError(
   error: any,
   event: any,
@@ -72,8 +66,6 @@ function logApiError(
   errorCode?: string
 ) {
   const level = statusCode >= 500 ? "ERROR" : "WARN";
-
-  // AppErrorがdetails（ownerIdなど）を持っていればログに含める
   const details = error instanceof AppError ? error.details : {};
 
   logger(level, error.message || "API Error", {
@@ -82,9 +74,9 @@ function logApiError(
     statusCode,
     errorCode,
     errorName: error.name,
-    stack: statusCode >= 500 ? error.stack : undefined, // 500系のみスタックトレース
+    stack: statusCode >= 500 ? error.stack : undefined,
     requestId: event.requestContext?.requestId,
-    ...details, // ここで ownerId などを展開
+    ...details,
   });
 }
 
@@ -107,24 +99,14 @@ export function validateJson<T>(body: string | null, schema: ZodSchema<T>): T {
   const result = schema.safeParse(parsed);
 
   if (!result.success) {
-    // 最初のイシューのメッセージ（= ErrorCode）を取得
     const errorCode = result.error.issues[0].message;
-
-    logger("WARN", "Validation Error", {
-      errors: result.error.format(),
-      errorCode,
-    });
-
-    // メッセージがErrorCode Enumに含まれるかチェック、またはそのまま渡す
-    // バリデーションエラーとして扱うが、具体的なErrorCodeをメッセージとして使う
-    // ここでは、ZodのメッセージをそのままErrorCodeとして扱う
     const finalErrorCode = Object.values(ErrorCode).includes(errorCode as any)
       ? (errorCode as ErrorCode)
       : ErrorCode.VALIDATION_FAILED;
 
     const error = new AppError(400, finalErrorCode);
     if (finalErrorCode === ErrorCode.VALIDATION_FAILED) {
-      error.message = errorCode; // ErrorCode定義外のメッセージの場合はそのままメッセージとして設定
+      error.message = errorCode;
     }
     throw error;
   }
@@ -149,19 +131,11 @@ export const apiHandler = (logic: LogicFunction) => {
     const origin = event.headers?.origin || event.headers?.Origin || "";
     const corsHeaders = getCorsHeaders(origin);
 
-    // CORS拒否時でも、ブラウザがエラーメッセージを表示できるようにCORSヘッダーを返す
-    // ただし、Access-Control-Allow-Originは返さない（セキュリティのため）
     if (!corsHeaders) {
-      logger("WARN", "CORS Forbidden", {
-        origin,
-        path: event.path,
-        allowedOrigins: process.env.ALLOWED_ORIGINS,
-      });
       return {
         statusCode: 403,
         headers: {
           "Content-Type": "application/json",
-          // CORSエラーを明確にするため、最小限のCORSヘッダーのみ返す
           "Access-Control-Allow-Origin": "null",
         },
         body: JSON.stringify({
@@ -172,31 +146,12 @@ export const apiHandler = (logic: LogicFunction) => {
     }
 
     if (event.httpMethod === "OPTIONS") {
-      // プリフライトリクエスト: CORSヘッダーを確実に返す
-      if (!corsHeaders) {
-        logger("WARN", "CORS Forbidden (OPTIONS)", {
-          origin,
-          path: event.path,
-          allowedOrigins: process.env.ALLOWED_ORIGINS,
-        });
-        return {
-          statusCode: 403,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "null",
-            "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PATCH,DELETE",
-            "Access-Control-Allow-Headers": "Content-Type,Authorization",
-          },
-          body: JSON.stringify({ errorCode: "CORS_FORBIDDEN" }),
-        };
-      }
       return {
         statusCode: 200,
         headers: {
           "Content-Type": "application/json",
           ...corsHeaders,
-          // プリフライトリクエストには追加のヘッダーも必要
-          "Access-Control-Max-Age": "86400", // 24時間
+          "Access-Control-Max-Age": "86400",
         },
         body: JSON.stringify({}),
       };
@@ -204,7 +159,6 @@ export const apiHandler = (logic: LogicFunction) => {
 
     try {
       const result = await logic(event, context);
-
       return {
         statusCode: result?.statusCode || 200,
         headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -212,29 +166,20 @@ export const apiHandler = (logic: LogicFunction) => {
       };
     } catch (rawError: any) {
       const error = normalizeError(rawError);
+      logApiError(error, event, error.statusCode, error.errorCode);
 
-      const statusCode = error.statusCode;
-      const errorCode = error.errorCode;
-      const message = error.message;
-
-      logApiError(error, event, statusCode, errorCode);
-
-      // エラー時でもCORSヘッダーを返す（corsHeadersがundefinedの場合でも）
-      const errorHeaders: Record<string, string> = {
+      const errorHeaders: Record<string, string | boolean> = {
         "Content-Type": "application/json",
+        ...corsHeaders,
       };
 
-      if (corsHeaders) {
-        Object.assign(errorHeaders, corsHeaders);
-      } else {
-        // CORS拒否時でも、ブラウザがエラーメッセージを表示できるように最小限のヘッダーを返す
-        errorHeaders["Access-Control-Allow-Origin"] = "null";
-      }
-
       return {
-        statusCode,
+        statusCode: error.statusCode,
         headers: errorHeaders,
-        body: JSON.stringify({ errorCode, message }),
+        body: JSON.stringify({
+          errorCode: error.errorCode,
+          message: error.message,
+        }),
       };
     }
   };
@@ -255,179 +200,185 @@ type StreamLogicFunction = (
 ) => Promise<void>;
 
 export const streamApiHandler = (logic: StreamLogicFunction) => {
-  const IS_LOCAL =
-    process.env.AWS_SAM_LOCAL === "true" || process.env.STAGE === "local";
+  const IS_LOCAL_STAGE = process.env.STAGE! === "local";
 
-  // [A] ローカル環境用ポリフィル
-  if (IS_LOCAL) {
-    return async (
-      event: any,
-      context: Context
-    ): Promise<APIGatewayProxyResult> => {
-      let responseBuffer = "";
-      let responseStatusCode = 200;
-      let responseHeaders: any = {};
-      let isInit = false;
+  if (!IS_LOCAL_STAGE) {
+    // AWS Lambda Response Streaming
+    return awslambda.streamifyResponse(
+      async (event: any, responseStream: any, context: Context) => {
+        let isHeadersSent = false;
+        let currentStream = responseStream;
 
-      const origin = event.headers?.origin || event.headers?.Origin || "";
-      const corsHeaders = getCorsHeaders(origin);
+        const origin = event.headers?.origin || event.headers?.Origin || "";
+        const corsHeaders = getCorsHeaders(origin);
 
-      if (!corsHeaders) {
-        logger("WARN", "CORS Forbidden (stream)", {
-          origin,
-          path: event.path,
-          allowedOrigins: process.env.ALLOWED_ORIGINS,
-        });
-        return {
-          statusCode: 403,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "null",
+        if (!corsHeaders) {
+          currentStream = awslambda.HttpResponseStream.from(responseStream, {
+            statusCode: 403,
+          });
+          currentStream.write(JSON.stringify({ message: "Forbidden" }));
+          currentStream.end();
+          return;
+        }
+
+        const streamHelper: StreamHelper = {
+          init: (
+            statusCode = 200,
+            contentType = "text/plain; charset=utf-8"
+          ) => {
+            if (isHeadersSent) return currentStream;
+
+            // v3.x UI Message Stream Protocol 用のヘッダーを設定
+            const metadata = {
+              statusCode,
+              headers: {
+                ...corsHeaders,
+                "Content-Type": contentType,
+                "Cache-Control": "no-cache",
+                Connection: "keep-alive",
+                // v3.x で必要なヘッダー
+                "X-Vercel-AI-UI-Message-Stream": "v1",
+                "X-Accel-Buffering": "no",
+              },
+            };
+
+            currentStream = awslambda.HttpResponseStream.from(
+              responseStream,
+              metadata
+            );
+            isHeadersSent = true;
+            return currentStream;
           },
-          body: JSON.stringify({
-            message: "Forbidden",
-            errorCode: "CORS_FORBIDDEN",
-          }),
         };
-      }
-
-      if (event.httpMethod === "OPTIONS") {
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-          body: JSON.stringify({}),
-        };
-      }
-
-      const mockStream = {
-        write: (chunk: any) => {
-          const text =
-            chunk instanceof Uint8Array
-              ? new TextDecoder().decode(chunk)
-              : chunk.toString();
-          responseBuffer += text;
-        },
-        end: () => {
-          /* noop */
-        },
-      };
-
-      const streamHelper: StreamHelper = {
-        init: (statusCode = 200, contentType = "application/json") => {
-          if (isInit) return mockStream;
-          responseStatusCode = statusCode;
-          responseHeaders = {
-            ...corsHeaders,
-            "Content-Type": contentType,
-          };
-          isInit = true;
-          return mockStream;
-        },
-      };
-
-      try {
-        await logic(event, streamHelper, context);
-        return {
-          statusCode: responseStatusCode,
-          headers: responseHeaders,
-          body: responseBuffer,
-        };
-      } catch (rawError: any) {
-        const error = normalizeError(rawError);
-
-        const statusCode = error.statusCode;
-        const errorCode = error.errorCode;
-
-        logApiError(error, event, statusCode, errorCode);
-
-        return {
-          statusCode,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-          body: JSON.stringify({ errorCode }),
-        };
-      }
-    };
-  }
-
-  // [B] 本番環境用ストリーミング
-  return awslambda.streamifyResponse(
-    async (event: any, responseStream: any, context: Context) => {
-      let isHeadersSent = false;
-      let currentStream = responseStream;
-
-      const origin = event.headers?.origin || event.headers?.Origin || "";
-      const corsHeaders = getCorsHeaders(origin);
-
-      if (!corsHeaders) {
-        currentStream = awslambda.HttpResponseStream.from(responseStream, {
-          statusCode: 403,
-        });
-        currentStream.write(JSON.stringify({ message: "Forbidden" }));
-        currentStream.end();
-        return;
-      }
-
-      const streamHelper: StreamHelper = {
-        init: (statusCode = 200, contentType = "application/json") => {
-          if (isHeadersSent) return currentStream;
-
-          const metadata = {
-            statusCode,
-            headers: {
-              ...corsHeaders,
-              "Content-Type": contentType,
-              "Cache-Control": "no-cache",
-              Connection: "keep-alive",
-            },
-          };
-
-          currentStream = awslambda.HttpResponseStream.from(
-            responseStream,
-            metadata
-          );
-          isHeadersSent = true;
-          return currentStream;
-        },
-      };
-
-      try {
-        if (event.httpMethod === "OPTIONS") {
-          streamHelper.init(200);
-          currentStream.end();
-          return;
-        }
-
-        await logic(event, streamHelper, context);
-      } catch (rawError: any) {
-        const error = normalizeError(rawError);
-
-        const statusCode = error.statusCode;
-        const errorCode = error.errorCode;
-
-        logApiError(error, event, statusCode, errorCode);
-
-        if (isHeadersSent) {
-          currentStream.end();
-          return;
-        }
 
         try {
-          const metadata = {
-            statusCode: statusCode,
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-          };
-          currentStream = awslambda.HttpResponseStream.from(
-            responseStream,
-            metadata
-          );
-          currentStream.write(
-            JSON.stringify({ errorCode: errorCode || "UNKNOWN_ERROR" })
-          );
-          currentStream.end();
-        } catch (streamError) {
-          responseStream.end();
+          if (event.httpMethod === "OPTIONS") {
+            streamHelper.init(200);
+            currentStream.end();
+            return;
+          }
+
+          await logic(event, streamHelper, context);
+        } catch (rawError: any) {
+          const error = normalizeError(rawError);
+          logApiError(error, event, error.statusCode, error.errorCode);
+
+          if (isHeadersSent) {
+            // 既にヘッダー送信済みの場合は、v3.x 形式でエラーを送信
+            // { "type": "error", "errorText": "..." }
+            try {
+              currentStream.write(
+                JSON.stringify({
+                  type: "error",
+                  errorText: error.errorCode || "UNKNOWN_ERROR",
+                }) + "\n"
+              );
+            } catch {
+              // 書き込み失敗時は無視
+            }
+            currentStream.end();
+            return;
+          }
+
+          try {
+            const metadata = {
+              statusCode: error.statusCode,
+              headers: {
+                "Content-Type": "application/json",
+                ...corsHeaders,
+              },
+            };
+            currentStream = awslambda.HttpResponseStream.from(
+              responseStream,
+              metadata
+            );
+            currentStream.write(
+              JSON.stringify({ errorCode: error.errorCode || "UNKNOWN_ERROR" })
+            );
+            currentStream.end();
+          } catch (streamError) {
+            responseStream.end();
+          }
         }
       }
+    );
+  }
+
+  // Local Polyfill
+  return async (
+    event: any,
+    context: Context
+  ): Promise<APIGatewayProxyResult> => {
+    let responseBuffer = "";
+    let responseStatusCode = 200;
+    let responseHeaders: any = {};
+    let isInit = false;
+
+    const origin = event.headers?.origin || event.headers?.Origin || "";
+    const corsHeaders = getCorsHeaders(origin);
+
+    if (!corsHeaders) {
+      return {
+        statusCode: 403,
+        headers: { "Access-Control-Allow-Origin": "null" },
+        body: JSON.stringify({ errorCode: "CORS_FORBIDDEN" }),
+      };
     }
-  );
+
+    if (event.httpMethod === "OPTIONS") {
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+        body: JSON.stringify({}),
+      };
+    }
+
+    const mockStream = {
+      write: (chunk: any) => {
+        const text =
+          chunk instanceof Uint8Array
+            ? new TextDecoder().decode(chunk)
+            : chunk.toString();
+        responseBuffer += text;
+      },
+      end: () => {
+        /* noop */
+      },
+    };
+
+    const streamHelper: StreamHelper = {
+      init: (statusCode = 200, contentType = "text/plain; charset=utf-8") => {
+        if (isInit) return mockStream;
+        responseStatusCode = statusCode;
+        // v3.x UI Message Stream Protocol 用のヘッダーを設定
+        responseHeaders = {
+          ...corsHeaders,
+          "Content-Type": contentType,
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          // v3.x で必要なヘッダー
+          "X-Vercel-AI-UI-Message-Stream": "v1",
+          "X-Accel-Buffering": "no",
+        };
+        isInit = true;
+        return mockStream;
+      },
+    };
+
+    try {
+      await logic(event, streamHelper, context);
+      return {
+        statusCode: responseStatusCode,
+        headers: responseHeaders,
+        body: responseBuffer,
+      };
+    } catch (rawError: any) {
+      const error = normalizeError(rawError);
+      return {
+        statusCode: error.statusCode,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+        body: JSON.stringify({ errorCode: error.errorCode }),
+      };
+    }
+  };
 };

@@ -62,11 +62,11 @@ open http://localhost:8001
 
 ## サービス一覧
 
-| サービス | URL | 説明 |
-|----------|-----|------|
-| LocalStack | http://localhost:4566 | S3, SQS, Secrets Manager |
-| DynamoDB Local | http://localhost:8000 | DynamoDB |
-| DynamoDB Admin | http://localhost:8001 | GUI管理ツール |
+| サービス       | URL                   | 説明                     |
+| -------------- | --------------------- | ------------------------ |
+| LocalStack     | http://localhost:4566 | S3, SQS, Secrets Manager |
+| DynamoDB Local | http://localhost:8000 | DynamoDB                 |
+| DynamoDB Admin | http://localhost:8001 | GUI管理ツール            |
 
 ## 開発フロー
 
@@ -209,16 +209,12 @@ docker-compose exec localstack curl http://dynamodb-local:8000
 
 ```bash
 # .env.local を使用
-USE_MOCK_BEDROCK=true
-USE_MOCK_AUTH=true
 ```
 
 ### AWS Dev環境接続
 
 ```bash
 # .env.local を編集
-USE_MOCK_BEDROCK=false
-USE_MOCK_AUTH=false
 KNOWLEDGE_BASE_ID=your-actual-kb-id
 AWS_PROFILE=dev
 ```
@@ -246,7 +242,7 @@ AWS_PROFILE=dev
 │
 ├── events/                      # Lambda テストイベント
 │   ├── get-documents.json
-│   └── upload-request.json
+│   └── upload.json
 │
 └── env.local.json               # SAM Local 用環境変数
 ```

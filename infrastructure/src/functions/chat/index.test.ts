@@ -2,24 +2,31 @@
 
 // 1. 環境変数の設定 (インポート前に設定が必要)
 process.env.TABLE_NAME = "ChatHistoryTable";
-process.env.PINECONE_INDEX_NAME = "documents";
-process.env.STAGE = "local"; // streamApiHandler がバッファリングモードで動作するように設定
-process.env.USE_MOCK_AUTH = "false"; // 実際の認証ロジックをテスト
+process.env.STAGE = "prod";
+process.env.USE_MOCK_AUTH = "false";
+process.env.USE_BEDROCK = "true";
 process.env.USER_POOL_ID = "us-east-1_dummy";
 process.env.CLIENT_ID = "client_dummy";
-process.env.USE_MOCK_BEDROCK = "false"; // 実ロジックフロー(モック使用)を通す
 process.env.ALLOWED_ORIGINS = "http://localhost:3000"; // CORS設定
 
-import { mockClient } from "aws-sdk-client-mock";
 import {
   DynamoDBDocumentClient,
+  GetCommand,
   PutCommand,
   QueryCommand,
-  GetCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { handler } from "./index";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
+import { mockClient } from "aws-sdk-client-mock";
+
+import { handler } from "./index";
+
+// TypeScriptがAWS Lambdaのストリーミング型（3引数）と推論してしまうため、
+// ローカルPolyfillの型（2引数）に明示的にキャストします。
+const localHandler = handler as unknown as (
+  event: any,
+  context: any
+) => Promise<any>;
 
 // 2. モックの定義
 const ddbMock = mockClient(DynamoDBDocumentClient);
@@ -53,8 +60,8 @@ import {
   invokeClaudeStream,
 } from "../../shared/clients/bedrock";
 import {
-  searchVectorsByOwner,
   getPineconeApiKey,
+  searchVectorsByOwner,
 } from "../../shared/clients/pinecone";
 
 describe("Chat Function Integration Tests", () => {
@@ -104,6 +111,26 @@ describe("Chat Function Integration Tests", () => {
     } as any;
   };
 
+  /**
+   * Vercel AI SDK形式のメッセージ作成ヘルパー
+   */
+  const createMessageBody = (
+    query: string,
+    sessionId: string,
+    redoHistoryId?: string
+  ) => {
+    return {
+      messages: [
+        {
+          role: "user",
+          parts: [{ type: "text", text: query }],
+        },
+      ],
+      sessionId,
+      redoHistoryId,
+    };
+  };
+
   // ==========================================
   // POST /chat/stream
   // ==========================================
@@ -138,7 +165,7 @@ describe("Chat Function Integration Tests", () => {
       ]);
 
       // 2. Claude Stream モック
-      (invokeClaudeStream as jest.Mock).mockImplementation(async function* (
+      (invokeClaudeStream as jest.Mock).mockImplementation(function* (
         prompt: string
       ) {
         // プロンプトに重複排除されたコンテキストが含まれているか確認
@@ -159,21 +186,22 @@ describe("Chat Function Integration Tests", () => {
       ddbMock.on(UpdateCommand).resolves({}); // 更新成功
 
       // 実行
-      const event = createEvent("POST", "/chat/stream", {
-        query: "Tell me about specs",
-        sessionId: "session-1",
-      });
+      const event = createEvent(
+        "POST",
+        "/chat/stream",
+        createMessageBody("Tell me about specs", "session-1")
+      );
 
-      const result: any = await handler(event, {} as any, {} as any);
+      // localHandlerを使用（2引数）
+      const result: any = await localHandler(event, {} as any);
 
       // 検証
       expect(result.statusCode).toBe(200);
       const body = result.body;
 
-      // レスポンスボディ (SSE) の検証
-      expect(body).toContain('type":"citations"');
-      expect(body).toContain('type":"text"');
-      expect(body).toContain('type":"done"');
+      // レスポンスボディ (NDJSON / Vercel AI SDK v3) の検証
+      expect(body).toContain('"type":"text-delta"');
+      expect(body).toContain('"type":"text-end"');
       expect(body).toContain("Hello, ");
       expect(body).toContain("World!");
 
@@ -198,20 +226,20 @@ describe("Chat Function Integration Tests", () => {
     it("should use redoHistoryId if provided", async () => {
       // Pinecone & Claude mocks
       (searchVectorsByOwner as jest.Mock).mockResolvedValue([]);
-      (invokeClaudeStream as jest.Mock).mockImplementation(async function* () {
+      (invokeClaudeStream as jest.Mock).mockImplementation(function* () {
         yield "Redo Response";
       });
       ddbMock.on(GetCommand).resolves({});
       ddbMock.on(PutCommand).resolves({});
 
       const redoId = "existing-msg-id";
-      const event = createEvent("POST", "/chat/stream", {
-        query: "Redo this",
-        sessionId: "session-redo",
-        redoHistoryId: redoId,
-      });
+      const event = createEvent(
+        "POST",
+        "/chat/stream",
+        createMessageBody("Redo this", "session-redo", redoId)
+      );
 
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
       expect(result.statusCode).toBe(200);
 
       // DynamoDB保存時に redoHistoryId が使われたか確認
@@ -230,7 +258,7 @@ describe("Chat Function Integration Tests", () => {
       (searchVectorsByOwner as jest.Mock).mockResolvedValue([]);
 
       // 2. Claude Stream fails midway
-      (invokeClaudeStream as jest.Mock).mockImplementation(async function* () {
+      (invokeClaudeStream as jest.Mock).mockImplementation(function* () {
         yield "Part 1";
         throw new Error("Stream Error");
       });
@@ -238,20 +266,20 @@ describe("Chat Function Integration Tests", () => {
       ddbMock.on(GetCommand).resolves({});
       ddbMock.on(PutCommand).resolves({});
 
-      const event = createEvent("POST", "/chat/stream", {
-        query: "Error test",
-        sessionId: "session-error",
-      });
+      const event = createEvent(
+        "POST",
+        "/chat/stream",
+        createMessageBody("Error test", "session-error")
+      );
 
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       // SSEとしてはエラーイベントを流して終了するが、statusは200
       expect(result.statusCode).toBe(200);
       const body = result.body;
 
       // エラーイベント確認
-      expect(body).toContain('type":"error"');
-      expect(body).toContain("Stream Error");
+      expect(body).toContain('"type":"error"');
 
       // 部分保存の確認 (Part 1 までが保存されているべき)
       const putCalls = ddbMock.commandCalls(PutCommand);
@@ -287,7 +315,7 @@ describe("Chat Function Integration Tests", () => {
       };
 
       const event = createEvent("POST", "/chat/feedback", body);
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -311,7 +339,7 @@ describe("Chat Function Integration Tests", () => {
       };
 
       const event = createEvent("POST", "/chat/feedback", body);
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(400);
       const resBody = JSON.parse(result.body);
@@ -336,7 +364,7 @@ describe("Chat Function Integration Tests", () => {
       });
 
       const event = createEvent("GET", "/chat/sessions");
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -381,7 +409,7 @@ describe("Chat Function Integration Tests", () => {
         { limit: "10", cursor: validCursor }
       );
 
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -408,7 +436,7 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("GET", "/chat/sessions/session-1", null, {
         sessionId: "session-1",
       });
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(404);
     });
@@ -430,7 +458,7 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("PATCH", "/chat/sessions/session-1", body, {
         sessionId: "session-1",
       });
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -448,7 +476,7 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("DELETE", "/chat/sessions/session-1", null, {
         sessionId: "session-1",
       });
-      const result: any = await handler(event, {} as any, {} as any);
+      const result: any = await localHandler(event, {} as any);
 
       expect(result.statusCode).toBe(200);
 

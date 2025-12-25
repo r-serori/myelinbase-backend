@@ -1,7 +1,7 @@
 // infrastructure/src/shared/types/processor.ts
 // Processor型定義
 
-import { DocumentStatus } from "./document";
+import type { DocumentStatusDto } from "../schemas/dto/document.dto";
 
 /**
  * Small to Big アルゴリズム用のチャンクデータ構造
@@ -42,7 +42,7 @@ export interface ProcessorError {
  */
 export interface ProcessorEvent {
   action: "updateStatus" | "extractAndChunk" | "embedAndUpsert";
-  status?: DocumentStatus;
+  status?: DocumentStatusDto;
   payload?: ProcessorPayload;
   error?: ProcessorError;
   // State Machineからの直接入力（後方互換性のため）

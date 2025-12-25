@@ -1,27 +1,23 @@
 // infrastructure/src/shared/utils/s3.ts
-// S3 ユーティリティ
+// S3 ユーティリティ (Refactored)
 
 import { S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+
+const IS_LOCAL_STAGE = process.env.STAGE === "local";
 
 /**
  * S3 Client を作成
- * ローカル環境とAWS環境で自動切り替え
  */
 export function createS3Client(): S3Client {
   const config: S3ClientConfig = {
     region: process.env.AWS_REGION || "us-east-1",
+    endpoint: process.env.S3_ENDPOINT,
+    forcePathStyle: IS_LOCAL_STAGE,
   };
 
-  if (process.env.STAGE === "local") {
-    config.credentials = {
-      accessKeyId: "local",
-      secretAccessKey: "local",
-    };
-    config.endpoint = "http://localhost:4566";
-    config.forcePathStyle = true; // LocalStack用
-    // LocalStackはチェックサム機能を完全にサポートしていないため、必須でない限り計算しない
+  if (IS_LOCAL_STAGE) {
     config.requestChecksumCalculation = "WHEN_REQUIRED";
     config.responseChecksumValidation = "WHEN_REQUIRED";
   }
@@ -29,9 +25,6 @@ export function createS3Client(): S3Client {
   return new S3Client(config);
 }
 
-/**
- * アップロード用署名付きURLを生成
- */
 export async function generateUploadUrl(
   s3Client: S3Client,
   bucket: string,
@@ -48,9 +41,6 @@ export async function generateUploadUrl(
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
-/**
- * ダウンロード用署名付きURLを生成
- */
 export async function generateDownloadUrl(
   s3Client: S3Client,
   bucket: string,
@@ -67,12 +57,8 @@ export async function generateDownloadUrl(
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
-/**
- * S3 URIをパース
- * 例: s3://bucket-name/path/to/file → { bucket: 'bucket-name', key: 'path/to/file' }
- */
 export function parseS3Uri(uri: string): { bucket: string; key: string } {
-  const match = uri.match(/^s3:\/\/([^\/]+)\/(.+)$/);
+  const match = uri.match(/^s3:\/\/([^/]+)\/(.+)$/);
   if (!match) {
     throw new Error(`Invalid S3 URI: ${uri}`);
   }
@@ -82,9 +68,6 @@ export function parseS3Uri(uri: string): { bucket: string; key: string } {
   };
 }
 
-/**
- * S3 URIを生成
- */
 export function buildS3Uri(bucket: string, key: string): string {
   return `s3://${bucket}/${key}`;
 }

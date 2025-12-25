@@ -1,5 +1,6 @@
-import { apiHandler, streamApiHandler, AppError } from "./api-handler";
 import { ErrorCode } from "../types/error-code";
+
+import { apiHandler, AppError, streamApiHandler } from "./api-handler";
 
 // テスト用の環境変数設定
 process.env.ALLOWED_ORIGINS = "http://localhost:3000";
@@ -7,8 +8,7 @@ process.env.ALLOWED_ORIGINS = "http://localhost:3000";
 process.env.STAGE = "local";
 
 // api-handler内での process.env 読み込みタイミングの問題を回避するために
-// response.ts のキャッシュをリセットする必要がありますが、
-// 簡易的に response.ts をモック化して getCorsHeaders の挙動を制御します。
+// response.ts をモック化して getCorsHeaders の挙動を制御します。
 jest.mock("./response", () => {
   return {
     getCorsHeaders: (origin: string) => {
@@ -40,11 +40,11 @@ describe("API Handler Utils", () => {
         ...headers,
       },
       requestContext: { requestId: "req-123" },
-    } as any);
+    }) as any;
 
   describe("apiHandler (Standard)", () => {
     it("should return 200 with formatted body on success", async () => {
-      const logic = async () => ({ message: "success" });
+      const logic = () => Promise.resolve({ message: "success" });
       const wrappedHandler = apiHandler(logic);
 
       const response = await wrappedHandler(createEvent(), mockContext);
@@ -57,9 +57,8 @@ describe("API Handler Utils", () => {
     });
 
     it("should handle AppError correctly (Client Error)", async () => {
-      const logic = async () => {
-        throw new AppError(400, ErrorCode.INVALID_PARAMETER);
-      };
+      const logic = () =>
+        Promise.reject(new AppError(400, ErrorCode.INVALID_PARAMETER));
       const wrappedHandler = apiHandler(logic);
 
       const response = await wrappedHandler(createEvent(), mockContext);
@@ -70,9 +69,8 @@ describe("API Handler Utils", () => {
     });
 
     it("should handle unexpected errors as 500 (Server Error)", async () => {
-      const logic = async () => {
-        throw new Error("Unexpected database failure");
-      };
+      const logic = () =>
+        Promise.reject(new Error("Unexpected database failure"));
       const wrappedHandler = apiHandler(logic);
 
       const response = await wrappedHandler(createEvent(), mockContext);
@@ -83,7 +81,7 @@ describe("API Handler Utils", () => {
     });
 
     it("should return 403 for CORS error if origin is not allowed", async () => {
-      const logic = async () => ({});
+      const logic = () => Promise.resolve({});
       const wrappedHandler = apiHandler(logic);
 
       const event = createEvent();
@@ -96,7 +94,7 @@ describe("API Handler Utils", () => {
     });
 
     it("should handle OPTIONS request (CORS Preflight)", async () => {
-      const logic = async () => ({});
+      const logic = () => Promise.resolve({});
       const wrappedHandler = apiHandler(logic);
 
       const event = createEvent("OPTIONS");
@@ -110,38 +108,46 @@ describe("API Handler Utils", () => {
   describe("streamApiHandler (Streaming - Local Mode)", () => {
     // ローカルモードのテスト (process.env.STAGE = "local" 前提)
 
-    it("should return buffered response in local mode", async () => {
-      const logic = async (event: any, streamHelper: any) => {
-        const stream = streamHelper.init(200, "text/plain");
+    it("should return buffered response with Vercel AI SDK headers in local mode", async () => {
+      const logic = (event: any, streamHelper: any) => {
+        // デフォルトのcontentType等はinitで設定される
+        const stream = streamHelper.init();
         stream.write("Hello");
         stream.write(" ");
         stream.write("World");
         stream.end();
+        return Promise.resolve();
       };
 
-      const wrappedHandler = streamApiHandler(logic);
-      // @ts-ignore: Local mode handler returns Promise<APIGatewayProxyResult>
-      const response = (await wrappedHandler(
-        createEvent(),
-        mockContext
-      )) as any;
+      // TypeScriptがAWS Lambdaのストリーミング型（3引数）と推論してしまう場合があるため、
+      // ローカルPolyfillの型（2引数）に明示的にキャストします。
+      const wrappedHandler = streamApiHandler(logic) as (
+        event: any,
+        context: any
+      ) => Promise<any>;
+      const response = await wrappedHandler(createEvent(), mockContext);
 
       expect(response.statusCode).toBe(200);
       expect(response.body).toBe("Hello World");
-      expect(response.headers?.["Content-Type"]).toBe("text/plain");
+
+      // Vercel AI SDK v3 用のヘッダーを確認
+      expect(response.headers?.["Content-Type"]).toBe(
+        "text/plain; charset=utf-8"
+      );
+      expect(response.headers?.["X-Vercel-AI-UI-Message-Stream"]).toBe("v1");
+      expect(response.headers?.["Cache-Control"]).toBe("no-cache");
+      expect(response.headers?.["Connection"]).toBe("keep-alive");
     });
 
     it("should handle errors in streaming logic", async () => {
-      const logic = async () => {
-        throw new AppError(400, ErrorCode.INVALID_PARAMETER);
-      };
+      const logic = () =>
+        Promise.reject(new AppError(400, ErrorCode.INVALID_PARAMETER));
 
-      const wrappedHandler = streamApiHandler(logic);
-      // @ts-ignore
-      const response = (await wrappedHandler(
-        createEvent(),
-        mockContext
-      )) as any;
+      const wrappedHandler = streamApiHandler(logic) as (
+        event: any,
+        context: any
+      ) => Promise<any>;
+      const response = await wrappedHandler(createEvent(), mockContext);
 
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.body);
@@ -149,14 +155,16 @@ describe("API Handler Utils", () => {
     });
 
     it("should return 403 for CORS error in streaming", async () => {
-      const logic = async () => {};
-      const wrappedHandler = streamApiHandler(logic);
+      const logic = () => Promise.resolve(undefined);
+      const wrappedHandler = streamApiHandler(logic) as (
+        event: any,
+        context: any
+      ) => Promise<any>;
 
       const event = createEvent();
       event.headers.origin = "http://evil.com";
 
-      // @ts-ignore
-      const response = (await wrappedHandler(event, mockContext)) as any;
+      const response = await wrappedHandler(event, mockContext);
 
       expect(response.statusCode).toBe(403);
       const body = JSON.parse(response.body);
