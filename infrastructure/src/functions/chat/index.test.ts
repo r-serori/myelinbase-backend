@@ -1,87 +1,155 @@
-// src/functions/chat/index.test.ts
-
-// 1. 環境変数の設定 (インポート前に設定が必要)
-process.env.TABLE_NAME = "ChatHistoryTable";
-process.env.STAGE = "prod";
-process.env.USE_MOCK_AUTH = "false";
-process.env.USE_BEDROCK = "true";
-process.env.USER_POOL_ID = "us-east-1_dummy";
-process.env.CLIENT_ID = "client_dummy";
-process.env.ALLOWED_ORIGINS = "http://localhost:3000"; // CORS設定
-
 import {
-  DynamoDBDocumentClient,
-  GetCommand,
-  PutCommand,
-  QueryCommand,
-  UpdateCommand,
+  DynamoDBDocumentClient as _DynamoDBDocumentClient,
+  GetCommand as _GetCommand,
+  PutCommand as _PutCommand,
+  QueryCommand as _QueryCommand,
+  UpdateCommand as _UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { CognitoJwtVerifier } from "aws-jwt-verify";
-import { mockClient } from "aws-sdk-client-mock";
+import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
 
-import { handler } from "./index";
-
-// TypeScriptがAWS Lambdaのストリーミング型（3引数）と推論してしまうため、
-// ローカルPolyfillの型（2引数）に明示的にキャストします。
-const localHandler = handler as unknown as (
-  event: any,
-  context: any
-) => Promise<any>;
-
-// 2. モックの定義
-const ddbMock = mockClient(DynamoDBDocumentClient);
-
-// Shared Clients / Utils のモック
-jest.mock("../../shared/clients/bedrock", () => ({
-  generateEmbeddings: jest.fn(),
-  invokeClaudeStream: jest.fn(),
-}));
-
-jest.mock("../../shared/clients/pinecone", () => ({
-  createPineconeClient: jest.fn(),
-  getPineconeApiKey: jest.fn(),
-  searchVectorsByOwner: jest.fn(),
-}));
-
-// aws-jwt-verify のモック
-jest.mock("aws-jwt-verify", () => {
-  return {
-    CognitoJwtVerifier: {
-      create: jest.fn().mockReturnValue({
-        verify: jest.fn(),
-      }),
-    },
-  };
-});
-
-// モック関数のインポート (実装をテスト内で定義するため)
-import {
-  generateEmbeddings,
-  invokeClaudeStream,
-} from "../../shared/clients/bedrock";
-import {
-  getPineconeApiKey,
-  searchVectorsByOwner,
-} from "../../shared/clients/pinecone";
+// 型定義のみインポート（実体は動的インポートで取得）
+import type { handler as HandlerType } from "./index";
 
 describe("Chat Function Integration Tests", () => {
-  const TEST_USER_ID = "user-123";
-  let mockVerifier: any;
+  const ORIGINAL_ENV = process.env;
+  let handler: typeof HandlerType;
+  let ddbMock: AwsClientStub<_DynamoDBDocumentClient>;
 
-  beforeEach(() => {
-    // モックのリセット
-    ddbMock.reset();
-    jest.clearAllMocks();
+  // コマンドクラスの参照を保持（動的に取得するため変数化）
+  let GetCommand: typeof _GetCommand;
+  let PutCommand: typeof _PutCommand;
+  let QueryCommand: typeof _QueryCommand;
+  let UpdateCommand: typeof _UpdateCommand;
 
-    // 認証モックの設定: 常に成功して TEST_USER_ID を返す
-    mockVerifier = CognitoJwtVerifier.create({} as any);
-    (mockVerifier.verify as jest.Mock).mockResolvedValue({
-      sub: TEST_USER_ID,
-    });
+  // 共有モジュールのモック関数への参照
+  let mockGenerateEmbeddings: jest.Mock;
+  let mockInvokeClaudeStream: jest.Mock;
+  let mockCreatePineconeClient: jest.Mock;
+  let mockGetPineconeApiKey: jest.Mock;
+  let mockSearchVectorsByOwner: jest.Mock;
+  let mockVerify: jest.Mock;
 
-    // 共通モックのデフォルト動作
-    (getPineconeApiKey as jest.Mock).mockResolvedValue("mock-pinecone-key");
-    (generateEmbeddings as jest.Mock).mockResolvedValue([[0.1, 0.2, 0.3]]); // Query Vector
+  beforeEach(async () => {
+    // 1. モジュールキャッシュのリセット
+    // これにより、テストごとにクリーンな環境でモジュールをロードできます
+    jest.resetModules();
+
+    // ------------------------------------------------------------------
+    // AWS Lambda Response Streaming (awslambda) のモック設定
+    // ------------------------------------------------------------------
+    // process.env.STAGE = 'prod' の場合、api-handler内で awslambda.streamifyResponse が呼ばれます。
+    // テスト環境には awslambda グローバルオブジェクトが存在しないため、ここでモックします。
+    // また、テストの利便性のために、ストリームへの書き込みをキャプチャして
+    // 通常の { statusCode, body } 形式のオブジェクトとして返すようにラップします。
+    (global as any).awslambda = {
+      streamifyResponse: (
+        handler: (
+          event: any,
+          responseStream: any,
+          context: any
+        ) => Promise<void>
+      ) => {
+        return async (event: any, context: any) => {
+          const responseStreamMock = {
+            _buffer: "",
+            _statusCode: 200,
+            write: function (chunk: any) {
+              const text =
+                chunk instanceof Uint8Array
+                  ? new TextDecoder().decode(chunk)
+                  : chunk.toString();
+              this._buffer += text;
+            },
+            end: function () {},
+          };
+
+          // ハンドラー実行（ストリームへの書き込みが行われる）
+          await handler(event, responseStreamMock, context);
+
+          // テストでの検証用に、蓄積したバッファとステータスコードを返す
+          return {
+            statusCode: responseStreamMock._statusCode,
+            body: responseStreamMock._buffer,
+          };
+        };
+      },
+      HttpResponseStream: {
+        from: (stream: any, metadata: any) => {
+          if (metadata && metadata.statusCode) {
+            stream._statusCode = metadata.statusCode;
+          }
+          return stream;
+        },
+      },
+    };
+
+    // 2. 環境変数の設定
+    process.env = { ...ORIGINAL_ENV };
+    process.env.TABLE_NAME = "ChatHistoryTable";
+    process.env.STAGE = "prod";
+    process.env.USE_MOCK_AUTH = "false";
+    process.env.USE_BEDROCK = "true";
+    process.env.USER_POOL_ID = "us-east-1_dummy";
+    process.env.CLIENT_ID = "client_dummy";
+    process.env.ALLOWED_ORIGINS = "http://localhost:3000";
+    process.env.AWS_REGION = "us-east-1"; // Region missingエラー回避
+
+    // 3. AWS SDKの動的インポートとモック作成
+    // resetModules後はSDKのクラスも新しくなるため、テスト内で再importしてクラスを取得します
+    const ddbModule = await import("@aws-sdk/lib-dynamodb");
+    const { DynamoDBDocumentClient } = ddbModule;
+    GetCommand = ddbModule.GetCommand;
+    PutCommand = ddbModule.PutCommand;
+    QueryCommand = ddbModule.QueryCommand;
+    UpdateCommand = ddbModule.UpdateCommand;
+
+    // 型不整合回避のためのキャスト（テストコードの堅牢性向上）
+    ddbMock = mockClient(
+      DynamoDBDocumentClient
+    ) as unknown as AwsClientStub<_DynamoDBDocumentClient>;
+
+    // 4. 共有モジュールのモック定義 (jest.doMockを使用)
+    // resetModules後なので、jest.mockではなくjest.doMockで動的にモックします
+    mockGenerateEmbeddings = jest.fn();
+    mockInvokeClaudeStream = jest.fn();
+    mockCreatePineconeClient = jest.fn();
+    mockGetPineconeApiKey = jest.fn();
+    mockSearchVectorsByOwner = jest.fn();
+    mockVerify = jest.fn();
+
+    jest.doMock("../../shared/clients/bedrock", () => ({
+      generateEmbeddings: mockGenerateEmbeddings,
+      invokeClaudeStream: mockInvokeClaudeStream,
+    }));
+
+    jest.doMock("../../shared/clients/pinecone", () => ({
+      createPineconeClient: mockCreatePineconeClient,
+      getPineconeApiKey: mockGetPineconeApiKey,
+      searchVectorsByOwner: mockSearchVectorsByOwner,
+    }));
+
+    jest.doMock("aws-jwt-verify", () => ({
+      CognitoJwtVerifier: {
+        create: jest.fn().mockReturnValue({
+          verify: mockVerify,
+        }),
+      },
+    }));
+
+    // 5. ハンドラーの動的インポート
+    // モック設定後にインポートすることで、モックが適用された依存関係を持つハンドラーを取得します
+    const indexModule = await import("./index");
+    handler = indexModule.handler;
+
+    // 共通モックのデフォルト動作設定
+    mockVerify.mockResolvedValue({ sub: "user-123" });
+    mockGetPineconeApiKey.mockResolvedValue("mock-pinecone-key");
+    mockGenerateEmbeddings.mockResolvedValue([[0.1, 0.2, 0.3]]);
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
+    delete (global as any).awslambda; // モックのクリーンアップ
   });
 
   /**
@@ -131,13 +199,25 @@ describe("Chat Function Integration Tests", () => {
     };
   };
 
+  /**
+   * ハンドラー実行ヘルパー
+   * ラムダハンドラーをローカル実行用にキャストして呼び出します
+   */
+  const invokeHandler = async (event: any) => {
+    const localHandler = handler as unknown as (
+      event: any,
+      context: any
+    ) => Promise<any>;
+    return localHandler(event, {} as any);
+  };
+
   // ==========================================
   // POST /chat/stream
   // ==========================================
   describe("POST /chat/stream", () => {
     it("should process chat stream with RAG and Small-to-Big deduplication", async () => {
       // 1. Pinecone検索モック (Small to Big: 同じ親を持つチャイルドがヒットしたケース)
-      (searchVectorsByOwner as jest.Mock).mockResolvedValue([
+      mockSearchVectorsByOwner.mockResolvedValue([
         {
           score: 0.95,
           metadata: {
@@ -165,9 +245,7 @@ describe("Chat Function Integration Tests", () => {
       ]);
 
       // 2. Claude Stream モック
-      (invokeClaudeStream as jest.Mock).mockImplementation(function* (
-        prompt: string
-      ) {
+      mockInvokeClaudeStream.mockImplementation(function* (prompt: string) {
         // プロンプトに重複排除されたコンテキストが含まれているか確認
         const countA = (prompt.match(/Parent Content A/g) || []).length;
         const countB = (prompt.match(/Parent Content B/g) || []).length;
@@ -192,8 +270,7 @@ describe("Chat Function Integration Tests", () => {
         createMessageBody("Tell me about specs", "session-1")
       );
 
-      // localHandlerを使用（2引数）
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       // 検証
       expect(result.statusCode).toBe(200);
@@ -206,7 +283,7 @@ describe("Chat Function Integration Tests", () => {
       expect(body).toContain("World!");
 
       // 認証の検証
-      expect(mockVerifier.verify).toHaveBeenCalledWith("valid-token");
+      expect(mockVerify).toHaveBeenCalledWith("valid-token");
 
       // DynamoDB保存の検証
       const putCalls = ddbMock.commandCalls(PutCommand);
@@ -225,8 +302,8 @@ describe("Chat Function Integration Tests", () => {
 
     it("should use redoHistoryId if provided", async () => {
       // Pinecone & Claude mocks
-      (searchVectorsByOwner as jest.Mock).mockResolvedValue([]);
-      (invokeClaudeStream as jest.Mock).mockImplementation(function* () {
+      mockSearchVectorsByOwner.mockResolvedValue([]);
+      mockInvokeClaudeStream.mockImplementation(function* () {
         yield "Redo Response";
       });
       ddbMock.on(GetCommand).resolves({});
@@ -239,7 +316,7 @@ describe("Chat Function Integration Tests", () => {
         createMessageBody("Redo this", "session-redo", redoId)
       );
 
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
       expect(result.statusCode).toBe(200);
 
       // DynamoDB保存時に redoHistoryId が使われたか確認
@@ -255,10 +332,10 @@ describe("Chat Function Integration Tests", () => {
 
     it("should save partial history when error occurs during streaming", async () => {
       // 1. Pinecone OK
-      (searchVectorsByOwner as jest.Mock).mockResolvedValue([]);
+      mockSearchVectorsByOwner.mockResolvedValue([]);
 
       // 2. Claude Stream fails midway
-      (invokeClaudeStream as jest.Mock).mockImplementation(function* () {
+      mockInvokeClaudeStream.mockImplementation(function* () {
         yield "Part 1";
         throw new Error("Stream Error");
       });
@@ -272,7 +349,7 @@ describe("Chat Function Integration Tests", () => {
         createMessageBody("Error test", "session-error")
       );
 
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       // SSEとしてはエラーイベントを流して終了するが、statusは200
       expect(result.statusCode).toBe(200);
@@ -315,7 +392,7 @@ describe("Chat Function Integration Tests", () => {
       };
 
       const event = createEvent("POST", "/chat/feedback", body);
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -339,7 +416,7 @@ describe("Chat Function Integration Tests", () => {
       };
 
       const event = createEvent("POST", "/chat/feedback", body);
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(400);
       const resBody = JSON.parse(result.body);
@@ -364,7 +441,7 @@ describe("Chat Function Integration Tests", () => {
       });
 
       const event = createEvent("GET", "/chat/sessions");
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -374,7 +451,7 @@ describe("Chat Function Integration Tests", () => {
       const callArgs = ddbMock.call(0).args[0].input as any;
       expect(callArgs.IndexName).toBe("GSI1");
       expect(callArgs.ExpressionAttributeValues[":userKey"]).toBe(
-        `USER#${TEST_USER_ID}`
+        "USER#user-123"
       );
     });
   });
@@ -388,7 +465,7 @@ describe("Chat Function Integration Tests", () => {
         Items: [
           {
             historyId: "msg-1",
-            ownerId: TEST_USER_ID,
+            ownerId: "user-123",
             userQuery: "Hi",
             aiResponse: "Hello",
             createdAt: "2024-01-01",
@@ -409,7 +486,7 @@ describe("Chat Function Integration Tests", () => {
         { limit: "10", cursor: validCursor }
       );
 
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -436,7 +513,7 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("GET", "/chat/sessions/session-1", null, {
         sessionId: "session-1",
       });
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(404);
     });
@@ -458,7 +535,7 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("PATCH", "/chat/sessions/session-1", body, {
         sessionId: "session-1",
       });
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -476,7 +553,7 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("DELETE", "/chat/sessions/session-1", null, {
         sessionId: "session-1",
       });
-      const result: any = await localHandler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
 

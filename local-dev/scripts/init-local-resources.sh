@@ -49,10 +49,19 @@ aws dynamodb create-table \
             }
         ]" \
     --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
-    --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
+    --stream-specification StreamEnabled=true,StreamViewType=OLD_IMAGE \
     --endpoint-url $ENDPOINT_URL \
     --region $REGION \
     2>/dev/null || echo "⚠️  DocumentTable already exists (skipped)"
+
+# ★ TTL設定を追加 (テーブル作成時には指定できない場合があるため、update-time-to-liveを使用)
+echo "Enabling TTL for DocumentTable..."
+aws dynamodb update-time-to-live \
+    --table-name "${DOCUMENT_TABLE}" \
+    --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+    --endpoint-url $ENDPOINT_URL \
+    --region $REGION \
+    2>/dev/null || echo "⚠️  Failed to enable TTL (or already enabled)"
 
 echo "✅ DocumentTable ready: ${DOCUMENT_TABLE}"
 
@@ -84,6 +93,15 @@ aws dynamodb create-table \
     --endpoint-url $ENDPOINT_URL \
     --region $REGION \
     2>/dev/null || echo "⚠️  ChatHistoryTable already exists (skipped)"
+
+# ★ TTL設定を追加
+echo "Enabling TTL for ChatHistoryTable..."
+aws dynamodb update-time-to-live \
+    --table-name "${CHAT_TABLE}" \
+    --time-to-live-specification "Enabled=true,AttributeName=ttl" \
+    --endpoint-url $ENDPOINT_URL \
+    --region $REGION \
+    2>/dev/null || echo "⚠️  Failed to enable TTL (or already enabled)"
 
 echo "✅ ChatHistoryTable ready: ${CHAT_TABLE}"
 

@@ -53,6 +53,7 @@ const PRESIGNED_URL_EXPIRY = parseInt(
   10
 );
 const IS_LOCAL_STAGE = process.env.STAGE! === "local";
+const DOCUMENT_TTL_SECONDS = 24 * 60 * 60;
 
 const docClient = createDynamoDBClient();
 const s3Client = createS3Client();
@@ -142,13 +143,12 @@ async function getDocuments(ownerId: string): Promise<GetDocumentsResponseDto> {
   const command = new QueryCommand({
     TableName: TABLE_NAME,
     IndexName: "OwnerIndex",
-    FilterExpression: "#status <> :deleting AND deleteRequested <> :true",
+    FilterExpression: "#status <> :deleted",
     KeyConditionExpression: "#owner = :ownerId",
     ExpressionAttributeNames: { "#owner": "ownerId", "#status": "status" },
     ExpressionAttributeValues: {
       ":ownerId": ownerId,
-      ":deleting": "DELETING",
-      ":true": true,
+      ":deleted": DocumentStatusSchema.enum.DELETED,
     },
     ScanIndexForward: false,
   });
@@ -184,6 +184,10 @@ async function getDownloadUrl(
     });
     // セキュリティ上の理由で404を返すが、エラーコードでPERMISSION_DENIEDを明示
     throw new AppError(404, ErrorCode.PERMISSION_DENIED);
+  }
+
+  if (item.status === DocumentStatusSchema.enum.DELETED) {
+    throw new AppError(404, ErrorCode.DOCUMENTS_NOT_FOUND);
   }
 
   if (item.status !== DocumentStatusSchema.enum.COMPLETED || !item.s3Key) {
@@ -237,28 +241,34 @@ async function getDocumentById(
     throw new AppError(404, ErrorCode.PERMISSION_DENIED);
   }
 
+  if (item.status === DocumentStatusSchema.enum.DELETED) {
+    throw new AppError(404, ErrorCode.DOCUMENTS_NOT_FOUND);
+  }
+
   const document = toDocumentDTO(item);
 
   return { document };
 }
 
 /**
- * ドキュメント削除 DELETE /documents/{documentId}
+ * ドキュメント削除 (論理削除 + TTL) DELETE /documents/{documentId}
  */
 async function deleteDocument(
   documentId: string,
   ownerId: string
 ): Promise<DeleteDocumentResponseDto> {
+  const ttl = Math.floor(Date.now() / 1000) + DOCUMENT_TTL_SECONDS;
+
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
     Key: { documentId },
     ConditionExpression: "attribute_exists(documentId) AND ownerId = :ownerId",
     UpdateExpression:
-      "SET deleteRequested = :true, #status = :deleting, updatedAt = :updatedAt, processingStatus = :active",
+      "SET #status = :deleted, ttl = :ttl, updatedAt = :updatedAt, processingStatus = :active",
     ExpressionAttributeNames: { "#status": "status" },
     ExpressionAttributeValues: {
-      ":true": true,
-      ":deleting": "DELETING",
+      ":deleted": DocumentStatusSchema.enum.DELETED,
+      ":ttl": ttl,
       ":updatedAt": new Date().toISOString(),
       ":ownerId": ownerId,
       ":active": "ACTIVE",
@@ -380,16 +390,15 @@ async function uploadRequest(
             ExpressionAttributeValues: {
               ":ownerId": ownerId,
               ":fileName": file.fileName,
+              ":deleted": DocumentStatusSchema.enum.DELETED,
             },
+            FilterExpression: "#status <> :deleted",
+            ExpressionAttributeNames: { "#status": "status" },
           })
         );
 
         if (duplicateDocs.Items && duplicateDocs.Items.length > 0) {
-          const activeDocs = duplicateDocs.Items.filter(
-            (doc) =>
-              doc.status !== DocumentStatusSchema.enum.DELETING &&
-              !doc.deleteRequested
-          );
+          const activeDocs = duplicateDocs.Items as DocumentEntity[];
 
           await Promise.all(
             activeDocs.map((oldDoc) =>
@@ -433,20 +442,23 @@ async function uploadRequest(
 // =================================================================
 
 /**
- * ドキュメントを削除リクエストにする
+ * ドキュメントを削除リクエストにする (同名ファイルアップロード時の置換用)
+ * こちらもTTLロジックに合わせる
  */
 async function markDocumentForDeletion(documentId: string, ownerId: string) {
+  const ttl = Math.floor(Date.now() / 1000) + DOCUMENT_TTL_SECONDS;
+
   await docClient.send(
     new UpdateCommand({
       TableName: TABLE_NAME,
       Key: { documentId },
       ConditionExpression: "ownerId = :ownerId",
       UpdateExpression:
-        "SET deleteRequested = :true, #status = :deleting, updatedAt = :now, processingStatus = :active",
+        "SET #status = :deleted, ttl = :ttl, updatedAt = :now, processingStatus = :active",
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: {
-        ":true": true,
-        ":deleting": DocumentStatusSchema.enum.DELETING,
+        ":deleted": DocumentStatusSchema.enum.DELETED,
+        ":ttl": ttl,
         ":now": new Date().toISOString(),
         ":ownerId": ownerId,
         ":active": "ACTIVE",
@@ -468,7 +480,7 @@ async function createUploadRequest(
   const s3Path = buildS3Uri(BUCKET_NAME, s3Key);
   const now = new Date().toISOString();
 
-  const item = {
+  const item: DocumentEntity = {
     documentId,
     status: DocumentStatusSchema.enum.PENDING_UPLOAD,
     processingStatus: "ACTIVE",

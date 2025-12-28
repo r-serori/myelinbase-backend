@@ -1,7 +1,10 @@
 // infrastructure/src/shared/utils/s3.ts
-// S3 ユーティリティ (Refactored)
 
-import { S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  S3Client,
+  S3ClientConfig,
+} from "@aws-sdk/client-s3";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -70,4 +73,20 @@ export function parseS3Uri(uri: string): { bucket: string; key: string } {
 
 export function buildS3Uri(bucket: string, key: string): string {
   return `s3://${bucket}/${key}`;
+}
+
+/**
+ * S3オブジェクトを削除
+ */
+export async function deleteS3Object(
+  s3Client: S3Client,
+  bucket: string,
+  key: string
+): Promise<void> {
+  const command = new DeleteObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  });
+
+  await s3Client.send(command);
 }

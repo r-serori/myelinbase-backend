@@ -1,52 +1,85 @@
-// infrastructure/src/functions/documents/index.test.ts
-
-// テスト実行前に環境変数を設定
-process.env.TABLE_NAME = "TestTable";
-process.env.BUCKET_NAME = "TestBucket";
-process.env.PRESIGNED_URL_EXPIRY = "900";
-process.env.STAGE = "prod";
-process.env.USE_MOCK_AUTH = "false";
-process.env.USER_POOL_ID = "us-east-1_dummy";
-process.env.CLIENT_ID = "client_dummy";
-process.env.ALLOWED_ORIGINS = "http://localhost:3000"; // CORS設定
-
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client as _S3Client } from "@aws-sdk/client-s3";
 import {
-  DynamoDBDocumentClient,
-  GetCommand,
-  PutCommand,
-  QueryCommand,
-  UpdateCommand,
+  DynamoDBDocumentClient as _DynamoDBDocumentClient,
+  GetCommand as _GetCommand,
+  PutCommand as _PutCommand,
+  QueryCommand as _QueryCommand,
+  UpdateCommand as _UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-// Presigned URL生成のモック用
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { mockClient } from "aws-sdk-client-mock";
+import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
 
 import { ErrorCode } from "../../shared/types/error-code";
 
-import { handler } from "./index";
-
-// --- Mocks Setup ---
-const ddbMock = mockClient(DynamoDBDocumentClient);
-const s3Mock = mockClient(S3Client);
-
-// S3 Presignerは関数としてインポートされるため、パス指定でモック化
-jest.mock("@aws-sdk/s3-request-presigner", () => ({
-  getSignedUrl: jest.fn(),
-}));
+// 型定義のみインポート（実体は動的インポートで取得）
+import type { handler as HandlerType } from "./index";
 
 describe("Documents Function (Auth Integration)", () => {
+  const ORIGINAL_ENV = process.env;
   const TEST_USER_ID = "user-001";
 
-  // 各テストごとのリセット処理
-  beforeEach(() => {
-    ddbMock.reset();
-    s3Mock.reset();
-    (getSignedUrl as jest.Mock).mockReset();
-    jest.clearAllMocks();
+  let handler: typeof HandlerType;
+  let ddbMock: AwsClientStub<_DynamoDBDocumentClient>;
+  let s3Mock: AwsClientStub<_S3Client>;
 
-    // デフォルト: Presigned URL生成成功
-    (getSignedUrl as jest.Mock).mockResolvedValue("https://s3.mock/upload-url");
+  // コマンドクラスの参照を保持（動的に取得するため変数化）
+  let GetCommand: typeof _GetCommand;
+  let PutCommand: typeof _PutCommand;
+  let QueryCommand: typeof _QueryCommand;
+  let UpdateCommand: typeof _UpdateCommand;
+
+  // モック関数への参照
+  let mockGetSignedUrl: jest.Mock;
+
+  beforeEach(async () => {
+    // 1. モジュールキャッシュのリセット
+    jest.resetModules();
+
+    // 2. 環境変数の設定
+    process.env = { ...ORIGINAL_ENV };
+    process.env.TABLE_NAME = "TestTable";
+    process.env.BUCKET_NAME = "TestBucket";
+    process.env.PRESIGNED_URL_EXPIRY = "900";
+    process.env.STAGE = "prod";
+    process.env.USE_MOCK_AUTH = "false";
+    process.env.USER_POOL_ID = "us-east-1_dummy";
+    process.env.CLIENT_ID = "client_dummy";
+    process.env.ALLOWED_ORIGINS = "http://localhost:3000";
+    process.env.AWS_REGION = "us-east-1"; // Region missingエラー回避
+
+    // 3. AWS SDKの動的インポートとモック作成
+    const ddbModule = await import("@aws-sdk/lib-dynamodb");
+    const s3Module = await import("@aws-sdk/client-s3");
+
+    // クラス参照の更新
+    GetCommand = ddbModule.GetCommand;
+    PutCommand = ddbModule.PutCommand;
+    QueryCommand = ddbModule.QueryCommand;
+    UpdateCommand = ddbModule.UpdateCommand;
+
+    // 型不整合回避のためのキャスト
+    ddbMock = mockClient(
+      ddbModule.DynamoDBDocumentClient
+    ) as unknown as AwsClientStub<_DynamoDBDocumentClient>;
+    s3Mock = mockClient(
+      s3Module.S3Client
+    ) as unknown as AwsClientStub<_S3Client>;
+
+    // 4. 外部モジュールのモック (jest.doMockを使用)
+    mockGetSignedUrl = jest.fn();
+    jest.doMock("@aws-sdk/s3-request-presigner", () => ({
+      getSignedUrl: mockGetSignedUrl,
+    }));
+
+    // デフォルトのモック動作: Presigned URL生成成功
+    mockGetSignedUrl.mockResolvedValue("https://s3.mock/upload-url");
+
+    // 5. ハンドラーの動的インポート
+    const indexModule = await import("./index");
+    handler = indexModule.handler;
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
   });
 
   /**
@@ -88,6 +121,17 @@ describe("Documents Function (Auth Integration)", () => {
     } as any;
   };
 
+  /**
+   * ハンドラー実行ヘルパー
+   */
+  const invokeHandler = async (event: any) => {
+    const localHandler = handler as unknown as (
+      event: any,
+      context: any
+    ) => Promise<any>;
+    return localHandler(event, {} as any);
+  };
+
   // ==========================================
   // GET /documents (List Documents)
   // ==========================================
@@ -111,7 +155,7 @@ describe("Documents Function (Auth Integration)", () => {
 
       // トークン付きイベント生成 (デフォルト)
       const event = createEvent("GET", "/documents");
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body);
@@ -127,7 +171,7 @@ describe("Documents Function (Auth Integration)", () => {
     it("should return 401 if token is missing", async () => {
       // トークンなし
       const event = createEvent("GET", "/documents", null, null, null);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(401);
     });
@@ -149,7 +193,7 @@ describe("Documents Function (Auth Integration)", () => {
       });
 
       const event = createEvent("GET", "/documents/doc-1", { id: "doc-1" });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body);
@@ -164,7 +208,7 @@ describe("Documents Function (Auth Integration)", () => {
       });
 
       const event = createEvent("GET", "/documents/doc-1", { id: "doc-1" });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
       expect(result.statusCode).toBe(404);
     });
 
@@ -178,14 +222,14 @@ describe("Documents Function (Auth Integration)", () => {
 
       // TEST_USER_ID (user-001) としてアクセス
       const event = createEvent("GET", "/documents/doc-1", { id: "doc-1" });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(404);
     });
 
     it("should return 400 if parameter is missing", async () => {
       const event = createEvent("GET", "/documents/doc-1", null);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(400);
     });
@@ -207,14 +251,12 @@ describe("Documents Function (Auth Integration)", () => {
         },
       });
 
-      (getSignedUrl as jest.Mock).mockResolvedValueOnce(
-        "https://s3.mock/download-url"
-      );
+      mockGetSignedUrl.mockResolvedValueOnce("https://s3.mock/download-url");
 
       const event = createEvent("GET", "/documents/doc-1/download-url", {
         id: "doc-1",
       });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const body = JSON.parse(result.body);
@@ -233,20 +275,15 @@ describe("Documents Function (Auth Integration)", () => {
         },
       });
 
-      (getSignedUrl as jest.Mock).mockResolvedValueOnce(
-        "https://s3.mock/download-url-md"
-      );
+      mockGetSignedUrl.mockResolvedValueOnce("https://s3.mock/download-url-md");
 
       const event = createEvent("GET", "/documents/doc-md/download-url", {
         id: "doc-md",
       });
-      await handler(event, {} as any);
+      await invokeHandler(event);
 
-      // getSignedUrl が charset=utf-8 付きの contentType で呼ばれたか確認
-      // getSignedUrl(client, command, options) なので、commandの中身を見る必要があるが
-      // aws-sdk-client-mock では難しい場合もあるので、ロジック内の generateDownloadUrl 呼び出しを確認
-      // ここでは generateDownloadUrl の実装を信じて、モック呼び出し回数などを確認
-      expect(getSignedUrl).toHaveBeenCalledTimes(1);
+      // getSignedUrl が呼ばれたことを確認
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
     });
 
     it("should return 400 if document status is not COMPLETED", async () => {
@@ -262,7 +299,7 @@ describe("Documents Function (Auth Integration)", () => {
       const event = createEvent("GET", "/documents/doc-1/download-url", {
         id: "doc-1",
       });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(400);
       const body = JSON.parse(result.body);
@@ -275,7 +312,7 @@ describe("Documents Function (Auth Integration)", () => {
       const event = createEvent("GET", "/documents/doc-1/download-url", {
         id: "doc-1",
       });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(404);
     });
@@ -313,13 +350,13 @@ describe("Documents Function (Auth Integration)", () => {
       };
 
       const event = createEvent("POST", "/documents/upload", null, body);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(202);
       const resBody = JSON.parse(result.body);
 
       // getSignedUrl が呼ばれたか確認
-      expect(getSignedUrl).toHaveBeenCalledTimes(1);
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
 
       expect(resBody.results).toHaveLength(1);
       expect(resBody.results[0].status).toBe("success");
@@ -354,7 +391,7 @@ describe("Documents Function (Auth Integration)", () => {
         ],
       };
       const event = createEvent("POST", "/documents/upload", null, body);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
       expect(result.statusCode).toBe(202);
       const resBody = JSON.parse(result.body);
       expect(resBody.results).toHaveLength(1);
@@ -373,7 +410,7 @@ describe("Documents Function (Auth Integration)", () => {
       };
 
       const event = createEvent("POST", "/documents/upload", null, body);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(400);
       const resBody = JSON.parse(result.body);
@@ -392,7 +429,7 @@ describe("Documents Function (Auth Integration)", () => {
         tags: ["tag1"],
       };
       const event = createEvent("POST", "/documents/upload", null, body);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
       expect(result.statusCode).toBe(400);
       const resBody = JSON.parse(result.body);
       expect(resBody.errorCode).toBe(ErrorCode.DOCUMENTS_FILE_TOO_LARGE);
@@ -412,7 +449,7 @@ describe("Documents Function (Auth Integration)", () => {
       });
 
       const event = createEvent("DELETE", "/documents/doc-1", { id: "doc-1" });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(202);
 
@@ -441,7 +478,7 @@ describe("Documents Function (Auth Integration)", () => {
       };
 
       const event = createEvent("POST", "/documents/batch-delete", null, body);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -472,7 +509,7 @@ describe("Documents Function (Auth Integration)", () => {
       };
 
       const event = createEvent("POST", "/documents/batch-delete", null, body);
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -513,7 +550,7 @@ describe("Documents Function (Auth Integration)", () => {
         body
       );
 
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
 
       expect(result.statusCode).toBe(200);
       const resBody = JSON.parse(result.body);
@@ -524,14 +561,14 @@ describe("Documents Function (Auth Integration)", () => {
       const event = createEvent("PATCH", "/documents/doc-1/tags", {
         id: "doc-1",
       });
-      const result: any = await handler(event, {} as any);
+      const result = await invokeHandler(event);
       expect(result.statusCode).toBe(400);
     });
   });
 
   it("should return 404 if endpoint is not found", async () => {
     const event = createEvent("GET", "/not-found");
-    const result: any = await handler(event, {} as any);
+    const result = await invokeHandler(event);
     expect(result.statusCode).toBe(404);
   });
 });

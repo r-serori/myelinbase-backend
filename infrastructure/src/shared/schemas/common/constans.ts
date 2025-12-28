@@ -3,7 +3,6 @@ export const DOCUMENT_STATUS = [
   "PROCESSING",
   "COMPLETED",
   "FAILED",
-  "DELETING",
   "DELETED",
   "DELETE_FAILED",
 ] as const;

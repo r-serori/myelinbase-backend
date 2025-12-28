@@ -171,6 +171,49 @@ Resources:
         - !Ref "AWS::NoValue"
 
   # ---------------------------------------------------
+  # 2. Database (DynamoDB) - DocumentTable
+  # ---------------------------------------------------
+  DocumentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-${Stage}-documents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: documentId
+          AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
+        - AttributeName: fileName
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: documentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: OwnerIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: FileNameIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: fileName
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
+      StreamSpecification:
+        StreamViewType: OLD_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ---------------------------------------------------
   # Chat Agent API
   # ---------------------------------------------------
   ChatAgentFunction:
@@ -196,7 +239,6 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Sub ${ProjectName}-${Stage}-chat-history
-          DOCUMENT_TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
           # Cognitoリソースへの参照を設定
           USER_POOL_ID: !Ref CognitoUserPool
           CLIENT_ID: !Ref CognitoUserPoolClient
@@ -284,8 +326,8 @@ Resources:
       MemorySize: 1024
       Environment:
         Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
           TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
-          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -356,8 +398,8 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
           TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
-          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs
           PRESIGNED_URL_EXPIRY: "900"
       Policies:
         - Version: "2012-10-17"
@@ -425,6 +467,167 @@ Resources:
         External:
           - "@aws-sdk/*"
 
+  # ---------------------------------------------------
+  # Cleanup Worker (DynamoDB Stream)
+  # ---------------------------------------------------
+  DocumentCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Stage}-cleanup
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt DocumentTable.StreamArn
+            BatchSize: 10
+            StartingPosition: TRIM_HORIZON
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/cleanup/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # 3. Storage (S3)
+  # ---------------------------------------------------
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [PUT, POST, GET, DELETE, HEAD]
+            AllowedOrigins: [!Ref FrontendUrl]
+            MaxAge: 3000
+            ExposedHeaders: ["ETag"]
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+            Function: !GetAtt IngestionTriggerFunction.Arn
+
+  DocumentsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnforceSSLOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt DocumentsBucket.Arn
+              - !Sub ${DocumentsBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  # ---------------------------------------------------
+  # 5. RAG ETL Pipeline (Step Functions)
+  # ---------------------------------------------------
+  RagIngestionStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub ${ProjectName}-${Stage}-pipeline
+      Definition:
+        Comment: "Robust RAG Ingestion: Extract -> Chunk -> Embed -> Index"
+        StartAt: UpdateStatusProcessing
+        States:
+          UpdateStatusProcessing:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "updateStatus"
+              status: "PROCESSING"
+              payload.$: "$"
+            Next: ExtractAndChunk
+            Retry: [{ ErrorEquals: ["States.ALL"], MaxAttempts: 3 }]
+
+          ExtractAndChunk:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "extractAndChunk"
+              payload.$: "$"
+            Next: EmbedAndUpsert
+            Catch: [{ ErrorEquals: ["States.ALL"], Next: HandleFailure }]
+
+          EmbedAndUpsert:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "embedAndUpsert"
+              payload.$: "$"
+            Next: UpdateStatusCompleted
+            Retry:
+              - ErrorEquals: ["ThrottlingException"]
+                IntervalSeconds: 5
+                BackoffRate: 2.0
+                MaxAttempts: 5
+            Catch: [{ ErrorEquals: ["States.ALL"], Next: HandleFailure }]
+
+          UpdateStatusCompleted:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "updateStatus"
+              status: "COMPLETED"
+              payload.$: "$"
+            End: True
+
+          HandleFailure:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "updateStatus"
+              status: "FAILED"
+              payload.$: "$"
+              error.$: "$.Error"
+            End: True
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DocProcessorFunction
+
+  # S3 Permission
+  S3TriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestionTriggerFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt DocumentsBucket.Arn
+
 # ============================================
 # Outputs
 # ============================================
@@ -444,3 +647,7 @@ Outputs:
   CognitoUserPoolClientId:
     Description: "Cognito User Pool Client ID"
     Value: !Ref CognitoUserPoolClient
+
+  DocumentsBucketName:
+    Description: "S3 Bucket Name"
+    Value: !Ref DocumentsBucket
