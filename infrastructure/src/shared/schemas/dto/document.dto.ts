@@ -11,6 +11,9 @@ extendZodWithOpenApi(z);
 // =================================================================
 
 export const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".md", ".markdown"];
+export const MAX_FILES = 20;
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
+export const MAX_TAGS = 20;
 
 export const TEXT_TYPES = ["text/markdown", "text/x-markdown", "text/plain"];
 
@@ -60,7 +63,7 @@ export const FileMetadataSchema = z
     fileSize: z
       .number()
       .min(0)
-      .max(50 * 1024 * 1024, ErrorCode.DOCUMENTS_FILE_TOO_LARGE),
+      .max(MAX_FILE_SIZE, ErrorCode.DOCUMENTS_FILE_TOO_LARGE),
   })
   .openapi("FileMetadata");
 
@@ -74,10 +77,10 @@ export const UploadRequestRequestSchema = z
     files: z
       .array(FileMetadataSchema)
       .min(1, ErrorCode.DOCUMENTS_SELECTION_EMPTY)
-      .max(20, ErrorCode.DOCUMENTS_SELECTION_TOO_MANY),
+      .max(MAX_FILES, ErrorCode.DOCUMENTS_SELECTION_TOO_MANY),
     tags: z
       .array(z.string().max(50, ErrorCode.DOCUMENTS_TAG_LENGTH_LIMIT))
-      .max(20, ErrorCode.DOCUMENTS_TAGS_TOO_MANY)
+      .max(MAX_TAGS, ErrorCode.DOCUMENTS_TAGS_TOO_MANY)
       .optional()
       .default([]),
   })
@@ -91,7 +94,7 @@ export const UpdateTagsRequestSchema = z
   .object({
     tags: z
       .array(z.string().max(50, ErrorCode.DOCUMENTS_TAG_LENGTH_LIMIT))
-      .max(20, ErrorCode.DOCUMENTS_TAGS_TOO_MANY),
+      .max(MAX_TAGS, ErrorCode.DOCUMENTS_TAGS_TOO_MANY),
   })
   .openapi("UpdateTagsRequest");
 
