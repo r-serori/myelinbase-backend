@@ -90,13 +90,14 @@ registry.register("SourceDocumentUIPart", ChatDTO.SourceDocumentUIPartSchema);
 registry.register("UIMessagePart", ChatDTO.UIMessagePartSchema);
 registry.register("UIMessage", ChatDTO.UIMessageSchema);
 
-registry.register("TextStartChunk", ChatDTO.TextStartChunkSchema);
 registry.register("TextDeltaChunk", ChatDTO.TextDeltaChunkSchema);
-registry.register("TextEndChunk", ChatDTO.TextEndChunkSchema);
-registry.register("SourceDocumentChunk", ChatDTO.SourceDocumentChunkSchema);
+registry.register("SourceChunk", ChatDTO.SourceChunkSchema);
 registry.register("ErrorChunk", ChatDTO.ErrorChunkSchema);
+registry.register("FinishChunk", ChatDTO.FinishChunkSchema);
 registry.register("DataChunk", ChatDTO.DataChunkSchema);
 registry.register("UIMessageChunk", ChatDTO.UIMessageChunkSchema);
+registry.register("SessionInfoPayload", ChatDTO.SessionInfoPayloadSchema);
+registry.register("CitationsPayload", ChatDTO.CitationsPayloadSchema);
 
 // =================================================================
 // Document スキーマ登録
@@ -191,7 +192,7 @@ registry.registerPath({
             description:
               "NDJSON stream of UIMessageChunk objects. Each line contains a JSON object with a 'type' field.",
             example:
-              '{"type":"text-start","id":"text-123"}\n{"type":"text-delta","id":"text-123","delta":"Hello"}\n{"type":"text-end","id":"text-123"}',
+              '{"type":"text-delta","textDelta":"Hello"}\n{"type":"source","source":{"sourceId":"src-1","title":"Doc","url":""}}\n{"type":"data","data":[{"type":"session_info","sessionId":"...","historyId":"...","createdAt":"..."}]}\n{"type":"finish","finishReason":"stop"}',
           }),
         },
       },

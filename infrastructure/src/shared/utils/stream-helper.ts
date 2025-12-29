@@ -1,12 +1,20 @@
 import {
-  CitationsDataChunkDto,
   CitationsPayloadDto,
-  SessionInfoDataChunkDto,
+  DataChunkDto,
+  ErrorChunkDto,
+  FinishChunkDto,
   SessionInfoPayloadDto,
+  SourceChunkDto,
   SourceDocumentDto,
   StreamWriter,
+  TextDeltaChunkDto,
   UIMessageChunkDto,
 } from "../schemas/dto/chat.dto";
+
+// =================================================================
+// Vercel AI SDK v3.x UI Message Stream Protocol 準拠
+// https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
+// =================================================================
 
 /**
  * UIMessageChunk を NDJSON 形式でフォーマット
@@ -16,84 +24,56 @@ function formatChunk(chunk: UIMessageChunkDto): string {
 }
 
 /**
- * テキストストリームを開始
+ * テキストデルタを送信
  */
-export function streamTextStart(writer: StreamWriter, textId: string): void {
-  writer.write(formatChunk({ type: "text-start", id: textId }));
+export function streamTextDelta(writer: StreamWriter, textDelta: string): void {
+  const chunk: TextDeltaChunkDto = { type: "text-delta", textDelta };
+  writer.write(formatChunk(chunk));
 }
 
 /**
- * テキストチャンクを送信
+ * ソースを送信
+ * UI Message Stream Protocol: {"type":"source","source":{...}}
  */
-export function streamTextDelta(
-  writer: StreamWriter,
-  textId: string,
-  delta: string
-): void {
-  writer.write(formatChunk({ type: "text-delta", id: textId, delta }));
-}
-
-/**
- * テキストストリームを終了
- */
-export function streamTextEnd(writer: StreamWriter, textId: string): void {
-  writer.write(formatChunk({ type: "text-end", id: textId }));
-}
-
-/**
- * ソースドキュメント（引用）を送信
- */
-export function streamSourceDocument(
+export function streamSource(
   writer: StreamWriter,
   sourceId: string,
   title: string,
-  filename?: string,
-  mediaType: string = "application/pdf"
+  url: string = ""
 ): void {
-  writer.write(
-    formatChunk({
-      type: "source-document",
-      sourceId,
-      mediaType,
-      title,
-      filename,
-    })
-  );
-}
-
-/**
- * 引用情報を送信（ヘルパー）
- * 型安全: CitationsDataChunkDto を使用
- */
-export function streamCitations(
-  writer: StreamWriter,
-  citations: SourceDocumentDto[]
-): void {
-  // 1. 各引用を source-document として送信
-  citations.forEach((citation, index) => {
-    streamSourceDocument(
-      writer,
-      `source-${index}`,
-      citation.text || "",
-      citation.fileName,
-      "application/pdf"
-    );
-  });
-
-  // 2. 型安全なデータチャンクとして送信
-  const payload: CitationsPayloadDto = { citations };
-  const chunk: CitationsDataChunkDto = {
-    type: "data-citations",
-    data: payload,
+  const chunk: SourceChunkDto = {
+    type: "source",
+    source: { sourceId, title, url },
   };
   writer.write(formatChunk(chunk));
 }
 
 /**
- * セッション情報を送信（ヘルパー）
- * 型安全: SessionInfoDataChunkDto を使用
- * ストリーミング完了時にフロントエンドがキャッシュを直接更新できるよう、
- * 必要な全ての情報を含める
+ * 引用情報を送信
+ * 1. 各引用を source として送信
+ * 2. 詳細データを data 配列として送信
+ */
+export function streamCitations(
+  writer: StreamWriter,
+  citations: SourceDocumentDto[]
+): void {
+  // 1. 各引用を source として送信
+  citations.forEach((citation, index) => {
+    streamSource(writer, `source-${index}`, citation.text || "");
+  });
+
+  // 2. 詳細データを data 配列として送信
+  const payload: CitationsPayloadDto = { type: "citations", citations };
+  const chunk: DataChunkDto = {
+    type: "data",
+    data: [payload],
+  };
+  writer.write(formatChunk(chunk));
+}
+
+/**
+ * セッション情報を送信
+ * UI Message Stream Protocol: {"type":"data","data":[...]}
  */
 export function streamSessionInfo(
   writer: StreamWriter,
@@ -101,11 +81,27 @@ export function streamSessionInfo(
   historyId: string,
   createdAt: string
 ): void {
-  const payload: SessionInfoPayloadDto = { sessionId, historyId, createdAt };
-  const chunk: SessionInfoDataChunkDto = {
-    type: "data-session_info",
-    data: payload,
+  const payload: SessionInfoPayloadDto = {
+    type: "session_info",
+    sessionId,
+    historyId,
+    createdAt,
   };
+  const chunk: DataChunkDto = {
+    type: "data",
+    data: [payload],
+  };
+  writer.write(formatChunk(chunk));
+}
+
+/**
+ * ストリーム終了を送信
+ */
+export function streamFinish(
+  writer: StreamWriter,
+  finishReason: "stop" | "error" | "length" = "stop"
+): void {
+  const chunk: FinishChunkDto = { type: "finish", finishReason };
   writer.write(formatChunk(chunk));
 }
 
@@ -113,7 +109,8 @@ export function streamSessionInfo(
  * エラーを送信
  */
 export function streamError(writer: StreamWriter, errorText: string): void {
-  writer.write(formatChunk({ type: "error", errorText }));
+  const chunk: ErrorChunkDto = { type: "error", errorText };
+  writer.write(formatChunk(chunk));
 }
 
 export const UI_MESSAGE_STREAM_CONTENT_TYPE = "text/plain; charset=utf-8";

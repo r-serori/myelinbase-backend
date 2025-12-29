@@ -2,38 +2,49 @@ import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
 import { ErrorCode } from "../../types/error-code";
-import { FEEDBACK_TYPE } from "../common/constans";
 
 extendZodWithOpenApi(z);
 
 // =================================================================
-// API公開用 DTO
+// 共通型定義
 // =================================================================
 
-// 基本型（API公開用）
+export interface StreamWriter {
+  write: (chunk: string) => void;
+  end: () => void;
+}
+
+export const FEEDBACK_TYPE = ["NONE", "GOOD", "BAD"] as const;
+export type FeedbackType = (typeof FEEDBACK_TYPE)[number];
+
+export const FeedbackTypeSchema = z.enum(FEEDBACK_TYPE).openapi("FeedbackType");
+
+// =================================================================
+// SourceDocument (共通)
+// =================================================================
 
 export const SourceDocumentSchema = z
   .object({
-    fileName: z.string().openapi({ example: "document.pdf" }),
-    score: z.number().optional().openapi({ example: 0.95 }),
-    text: z.string().optional(),
-    documentId: z.string().optional(),
+    text: z.string(),
+    fileName: z.string(),
+    documentId: z.string(),
+    score: z.number(),
   })
   .openapi("SourceDocument");
 
 export type SourceDocumentDto = z.infer<typeof SourceDocumentSchema>;
 
-export const FeedbackTypeSchema = z.enum(FEEDBACK_TYPE).openapi("FeedbackType");
-
-export type FeedbackTypeDto = z.infer<typeof FeedbackTypeSchema>;
+// =================================================================
+// Chat Session & Message Entities
+// =================================================================
 
 export const ChatSessionSchema = z
   .object({
-    sessionId: z.string().openapi({ example: "session-123" }),
-    sessionName: z.string().openapi({ example: "My Session" }),
-    createdAt: z.string().datetime(),
-    lastMessageAt: z.string().datetime(),
-    updatedAt: z.string().datetime().optional(),
+    sessionId: z.string(),
+    sessionName: z.string(),
+    createdAt: z.string(),
+    lastMessageAt: z.string(),
+    updatedAt: z.string().optional(),
   })
   .openapi("ChatSession");
 
@@ -41,22 +52,21 @@ export type ChatSessionDto = z.infer<typeof ChatSessionSchema>;
 
 export const ChatMessageSchema = z
   .object({
-    historyId: z.string().openapi({ example: "msg-123" }),
+    historyId: z.string(),
     sessionId: z.string(),
     userQuery: z.string(),
     aiResponse: z.string(),
     sourceDocuments: z.array(SourceDocumentSchema),
     feedback: FeedbackTypeSchema,
-    feedbackComment: z.string().optional(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string().optional(),
   })
   .openapi("ChatMessage");
 
 export type ChatMessageDto = z.infer<typeof ChatMessageSchema>;
 
 // =================================================================
-// Vercel AI SDK v3.x - UI Message Stream Protocol
+// UI Message Parts (リクエスト用)
 // =================================================================
 
 export const TextUIPartSchema = z
@@ -108,46 +118,78 @@ export type ChatStreamRequestDto = z.infer<typeof ChatStreamRequestSchema>;
 
 // =================================================================
 // UI Message Stream Protocol - レスポンスチャンク型
+// Vercel AI SDK v3.x 準拠
+// https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
 // =================================================================
 
-export const TextStartChunkSchema = z
-  .object({
-    type: z.literal("text-start"),
-    id: z.string(),
-  })
-  .openapi("TextStartChunk");
-
+/**
+ * テキストデルタチャンク
+ * SDK期待形式: {"type":"text-delta","textDelta":"..."}
+ */
 export const TextDeltaChunkSchema = z
   .object({
     type: z.literal("text-delta"),
-    id: z.string(),
-    delta: z.string(),
+    textDelta: z.string(),
   })
   .openapi("TextDeltaChunk");
 
-export const TextEndChunkSchema = z
-  .object({
-    type: z.literal("text-end"),
-    id: z.string(),
-  })
-  .openapi("TextEndChunk");
+export type TextDeltaChunkDto = z.infer<typeof TextDeltaChunkSchema>;
 
-export const SourceDocumentChunkSchema = z
+/**
+ * ソースチャンク
+ * SDK期待形式: {"type":"source","source":{...}}
+ */
+export const SourceChunkSchema = z
   .object({
-    type: z.literal("source-document"),
-    sourceId: z.string(),
-    mediaType: z.string(),
-    title: z.string(),
-    filename: z.string().optional(),
+    type: z.literal("source"),
+    source: z.object({
+      sourceId: z.string(),
+      url: z.string(),
+      title: z.string(),
+    }),
   })
-  .openapi("SourceDocumentChunk");
+  .openapi("SourceChunk");
 
+export type SourceChunkDto = z.infer<typeof SourceChunkSchema>;
+
+/**
+ * エラーチャンク
+ * SDK期待形式: {"type":"error","errorText":"..."}
+ */
 export const ErrorChunkSchema = z
   .object({
     type: z.literal("error"),
     errorText: z.string(),
   })
   .openapi("ErrorChunk");
+
+export type ErrorChunkDto = z.infer<typeof ErrorChunkSchema>;
+
+/**
+ * 終了チャンク
+ * SDK期待形式: {"type":"finish","finishReason":"stop"|"error"|"length"}
+ */
+export const FinishChunkSchema = z
+  .object({
+    type: z.literal("finish"),
+    finishReason: z.enum(["stop", "error", "length"]),
+  })
+  .openapi("FinishChunk");
+
+export type FinishChunkDto = z.infer<typeof FinishChunkSchema>;
+
+/**
+ * データチャンク（カスタムデータ用）
+ * SDK期待形式: {"type":"data","data":[...]}
+ */
+export const DataChunkSchema = z
+  .object({
+    type: z.literal("data"),
+    data: z.array(z.unknown()),
+  })
+  .openapi("DataChunk");
+
+export type DataChunkDto = z.infer<typeof DataChunkSchema>;
 
 // =================================================================
 // ★ Stream Data Payloads - Orvalで型生成される
@@ -160,6 +202,7 @@ export const ErrorChunkSchema = z
  */
 export const SessionInfoPayloadSchema = z
   .object({
+    type: z.literal("session_info").optional(),
     sessionId: z.string().openapi({ example: "session-123" }),
     historyId: z.string().openapi({ example: "msg-456" }),
     createdAt: z
@@ -176,70 +219,23 @@ export type SessionInfoPayloadDto = z.infer<typeof SessionInfoPayloadSchema>;
  */
 export const CitationsPayloadSchema = z
   .object({
+    type: z.literal("citations").optional(),
     citations: z.array(SourceDocumentSchema),
   })
   .openapi("CitationsPayload");
 
 export type CitationsPayloadDto = z.infer<typeof CitationsPayloadSchema>;
 
-// =================================================================
-// ★ 型付きデータチャンク - Orvalで型生成される
-// =================================================================
-
-/**
- * セッション情報データチャンク
- */
-export const SessionInfoDataChunkSchema = z
-  .object({
-    type: z.literal("data-session_info"),
-    id: z.string().optional(),
-    data: SessionInfoPayloadSchema,
-  })
-  .openapi("SessionInfoDataChunk");
-
-export type SessionInfoDataChunkDto = z.infer<
-  typeof SessionInfoDataChunkSchema
->;
-
-/**
- * 引用情報データチャンク
- */
-export const CitationsDataChunkSchema = z
-  .object({
-    type: z.literal("data-citations"),
-    id: z.string().optional(),
-    data: CitationsPayloadSchema,
-  })
-  .openapi("CitationsDataChunk");
-
-export type CitationsDataChunkDto = z.infer<typeof CitationsDataChunkSchema>;
-
-/**
- * 汎用データチャンク（後方互換性・拡張用）
- */
-export const DataChunkSchema = z
-  .object({
-    type: z.string().regex(/^data-.+$/),
-    id: z.string().optional(),
-    data: z.unknown(),
-  })
-  .openapi("DataChunk");
-
-export type DataChunkDto = z.infer<typeof DataChunkSchema>;
-
 /**
  * UIメッセージチャンク（全種類の union）
- * SessionInfoDataChunk, CitationsDataChunk を明示的に含める
+ * Vercel AI SDK v3.x UI Message Stream Protocol 準拠
  */
 export const UIMessageChunkSchema = z
   .union([
-    TextStartChunkSchema,
     TextDeltaChunkSchema,
-    TextEndChunkSchema,
-    SourceDocumentChunkSchema,
+    SourceChunkSchema,
     ErrorChunkSchema,
-    SessionInfoDataChunkSchema,
-    CitationsDataChunkSchema,
+    FinishChunkSchema,
     DataChunkSchema,
   ])
   .openapi("UIMessageChunk");
@@ -374,16 +370,7 @@ export type SubmitFeedbackResponseDto = z.infer<
 >;
 
 // =================================================================
-// Stream Writer インターフェース
-// =================================================================
-
-export interface StreamWriter {
-  write: (data: string) => void;
-  end: () => void;
-}
-
-// =================================================================
-// エラーレスポンス定義
+// エラーレスポンス型定義
 // =================================================================
 
 export const ChatStreamErrorResponseSchema = z

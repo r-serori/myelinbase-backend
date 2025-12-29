@@ -49,18 +49,19 @@ components:
     SourceDocument:
       type: object
       properties:
-        fileName:
-          type: string
-          example: document.pdf
-        score:
-          type: number
-          example: 0.95
         text:
+          type: string
+        fileName:
           type: string
         documentId:
           type: string
+        score:
+          type: number
       required:
+        - text
         - fileName
+        - documentId
+        - score
     FeedbackType:
       type: string
       enum:
@@ -72,19 +73,14 @@ components:
       properties:
         sessionId:
           type: string
-          example: session-123
         sessionName:
           type: string
-          example: My Session
         createdAt:
           type: string
-          format: date-time
         lastMessageAt:
           type: string
-          format: date-time
         updatedAt:
           type: string
-          format: date-time
       required:
         - sessionId
         - sessionName
@@ -95,7 +91,6 @@ components:
       properties:
         historyId:
           type: string
-          example: msg-123
         sessionId:
           type: string
         userQuery:
@@ -108,14 +103,10 @@ components:
             $ref: "#/components/schemas/SourceDocument"
         feedback:
           $ref: "#/components/schemas/FeedbackType"
-        feedbackComment:
-          type: string
         createdAt:
           type: string
-          format: date-time
         updatedAt:
           type: string
-          format: date-time
       required:
         - historyId
         - sessionId
@@ -405,18 +396,6 @@ components:
             - PERMISSION_DENIED
       required:
         - errorCode
-    TextStartChunk:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - text-start
-        id:
-          type: string
-      required:
-        - type
-        - id
     TextDeltaChunk:
       type: object
       properties:
@@ -424,46 +403,34 @@ components:
           type: string
           enum:
             - text-delta
-        id:
-          type: string
-        delta:
+        textDelta:
           type: string
       required:
         - type
-        - id
-        - delta
-    TextEndChunk:
+        - textDelta
+    SourceChunk:
       type: object
       properties:
         type:
           type: string
           enum:
-            - text-end
-        id:
-          type: string
+            - source
+        source:
+          type: object
+          properties:
+            sourceId:
+              type: string
+            url:
+              type: string
+            title:
+              type: string
+          required:
+            - sourceId
+            - url
+            - title
       required:
         - type
-        - id
-    SourceDocumentChunk:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - source-document
-        sourceId:
-          type: string
-        mediaType:
-          type: string
-        title:
-          type: string
-        filename:
-          type: string
-      required:
-        - type
-        - sourceId
-        - mediaType
-        - title
+        - source
     ErrorChunk:
       type: object
       properties:
@@ -476,21 +443,50 @@ components:
       required:
         - type
         - errorText
+    FinishChunk:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - finish
+        finishReason:
+          type: string
+          enum:
+            - stop
+            - error
+            - length
+      required:
+        - type
+        - finishReason
     DataChunk:
       type: object
       properties:
         type:
           type: string
-          pattern: ^data-.+$
-        id:
-          type: string
+          enum:
+            - data
         data:
-          nullable: true
+          type: array
+          items:
+            nullable: true
       required:
         - type
+        - data
+    UIMessageChunk:
+      anyOf:
+        - $ref: "#/components/schemas/TextDeltaChunk"
+        - $ref: "#/components/schemas/SourceChunk"
+        - $ref: "#/components/schemas/ErrorChunk"
+        - $ref: "#/components/schemas/FinishChunk"
+        - $ref: "#/components/schemas/DataChunk"
     SessionInfoPayload:
       type: object
       properties:
+        type:
+          type: string
+          enum:
+            - session_info
         sessionId:
           type: string
           example: session-123
@@ -505,53 +501,19 @@ components:
         - sessionId
         - historyId
         - createdAt
-    SessionInfoDataChunk:
+    CitationsPayload:
       type: object
       properties:
         type:
           type: string
           enum:
-            - data-session_info
-        id:
-          type: string
-        data:
-          $ref: "#/components/schemas/SessionInfoPayload"
-      required:
-        - type
-        - data
-    CitationsPayload:
-      type: object
-      properties:
+            - citations
         citations:
           type: array
           items:
             $ref: "#/components/schemas/SourceDocument"
       required:
         - citations
-    CitationsDataChunk:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - data-citations
-        id:
-          type: string
-        data:
-          $ref: "#/components/schemas/CitationsPayload"
-      required:
-        - type
-        - data
-    UIMessageChunk:
-      anyOf:
-        - $ref: "#/components/schemas/TextStartChunk"
-        - $ref: "#/components/schemas/TextDeltaChunk"
-        - $ref: "#/components/schemas/TextEndChunk"
-        - $ref: "#/components/schemas/SourceDocumentChunk"
-        - $ref: "#/components/schemas/ErrorChunk"
-        - $ref: "#/components/schemas/SessionInfoDataChunk"
-        - $ref: "#/components/schemas/CitationsDataChunk"
-        - $ref: "#/components/schemas/DataChunk"
     DocumentStatus:
       type: string
       enum:
@@ -895,9 +857,10 @@ paths:
                 description: NDJSON stream of UIMessageChunk objects. Each line contains a JSON
                   object with a 'type' field.
                 example: |-
-                  {"type":"text-start","id":"text-123"}
-                  {"type":"text-delta","id":"text-123","delta":"Hello"}
-                  {"type":"text-end","id":"text-123"}
+                  {"type":"text-delta","textDelta":"Hello"}
+                  {"type":"source","source":{"sourceId":"src-1","title":"Doc","url":""}}
+                  {"type":"data","data":[{"type":"session_info","sessionId":"...","historyId":"...","createdAt":"..."}]}
+                  {"type":"finish","finishReason":"stop"}
         "400":
           description: Bad Request
           content:

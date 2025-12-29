@@ -14,8 +14,16 @@ export function toSessionDTO(entity: ChatSessionEntity): ChatSessionDto {
 }
 
 export function toMessageDTO(entity: ChatMessageEntity): ChatMessageDto {
-  const { pk, sk, ownerId, ...dto } = entity;
-  return dto;
+  const { pk, sk, ownerId, sourceDocuments, feedbackComment, ...dto } = entity;
+  return {
+    ...dto,
+    sourceDocuments: sourceDocuments.map((sourceDocument) => ({
+      fileName: sourceDocument.fileName,
+      score: sourceDocument.score ?? 0,
+      text: sourceDocument.text ?? "",
+      documentId: sourceDocument.documentId ?? "",
+    })),
+  };
 }
 
 export function toDocumentDTO(entity: DocumentEntity): DocumentResponseDto {

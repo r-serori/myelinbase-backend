@@ -81,7 +81,7 @@ Resources:
     Properties:
       FunctionName:
         Fn::Sub: ${ProjectName}-local-agent
-      CodeUri: s3://lambda-deploy-bucket/bace8c17f8a7ba17e263962e2cd63217
+      CodeUri: s3://lambda-deploy-bucket/d6d4f5daac47fbdbbe17c3eee9b6edd2
       Handler: index.handler
       Description: Streaming Chat Agent (Local)
       Timeout: 300
@@ -189,7 +189,7 @@ Resources:
     Properties:
       FunctionName:
         Fn::Sub: ${ProjectName}-local-doc-processor
-      CodeUri: s3://lambda-deploy-bucket/18f444a24a5499b841b5be6f3f4c0e6e
+      CodeUri: s3://lambda-deploy-bucket/54f1e8035c6a778167059676dd51ad6b
       Handler: index.handler
       Timeout: 120
       MemorySize: 1024
@@ -229,7 +229,7 @@ Resources:
     Properties:
       FunctionName:
         Fn::Sub: ${ProjectName}-local-trigger
-      CodeUri: s3://lambda-deploy-bucket/9b6c7b31fabd6debec49efc7562057f3
+      CodeUri: s3://lambda-deploy-bucket/259c886e16b50192c79f7734a9d6d8cf
       Handler: index.handler
       Timeout: 300
       MemorySize: 512
@@ -268,7 +268,7 @@ Resources:
     Properties:
       FunctionName:
         Fn::Sub: ${ProjectName}-local-cleanup
-      CodeUri: s3://lambda-deploy-bucket/393213ce58147f6da4890ba8ec01d135
+      CodeUri: s3://lambda-deploy-bucket/adcfe2511fa5c03ba8d532610652d065
       Handler: index.handler
       Timeout: 60
       Environment:
@@ -305,7 +305,7 @@ Resources:
     Properties:
       FunctionName:
         Fn::Sub: ${ProjectName}-local-documents
-      CodeUri: s3://lambda-deploy-bucket/af61ed4428bd9b1a4faf00b076629e03
+      CodeUri: s3://lambda-deploy-bucket/3781d953167773ab102d3ac15fb04dc8
       Handler: index.handler
       Timeout: 30
       Environment:

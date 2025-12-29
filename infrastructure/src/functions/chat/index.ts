@@ -55,10 +55,9 @@ import {
 import {
   streamCitations,
   streamError,
+  streamFinish,
   streamSessionInfo,
   streamTextDelta,
-  streamTextEnd,
-  streamTextStart,
   UI_MESSAGE_STREAM_CONTENT_TYPE,
 } from "../../shared/utils/stream-helper";
 
@@ -286,20 +285,15 @@ async function sendMockStream(
     // 引用情報を送信
     streamCitations(responseStream, mockCitations);
 
-    // テキストストリーム開始
-    streamTextStart(responseStream, textId);
     const mockResponse =
       '**はい、TypeScriptでも完全に可能です！**\n実は、LangChainにはPython版と双璧をなす**JavaScript/TypeScript版のライブラリ（LangChain.js）**が存在します。\n\nむしろ、Webアプリケーション（Next.jsやReactなど）にAIを組み込む場合は、**LangChain.js（TypeScript）の方が親和性が高く、主流**になりつつあります。\n\n------\n\n### 1. TypeScript版「LangChain.js」の特徴\n\n  * **機能はほぼ同等:** Python版にある機能のほとんどが移植されており、最新のアップデート（LangGraphなど）もほぼ同時にサポートされます。\n  * **Web開発に最適:** Vercel (Edge Functions) や Cloudflare Workers などのサーバーレス環境で動かしやすい設計になっています。\n  * **型安全性:** TypeScriptで書かれているため、型定義がしっかりしており、開発体験（DX）が非常に良いです。\n\n-----\n\n### 2. TypeScriptでのコード例\n\n先ほどのPythonコードと同じ処理（会社名を考える）をTypeScriptで書くと以下のようになります。\n※ 記述方法は非常に似ています。\n\n```typescript\nimport { ChatOpenAI } from "@langchain/openai";\nimport { PromptTemplate } from "@langchain/core/prompts";\n\n// 1. LLMの定義\nconst model = new ChatOpenAI({\n  modelName: "gpt-3.5-turbo",\n  temperature: 0,\n});\n\n// 2. プロンプトのテンプレート作成\nconst prompt = PromptTemplate.fromTemplate(\n  "{product}を作るための、キャッチーな会社名を1つ考えてください。"\n);\n\n// 3. チェーンの作成（pipeを使って繋ぎます）\nconst chain = prompt.pipe(model);\n\n// 実行（非同期処理なのでawaitを使います）\nasync function main() {\n  const response = await chain.invoke({ product: "高性能なAIロボット" });\n  console.log(response.content); \n  // 出力例: "ロボ・インテリジェンス"\n}\n\nmain();\n```\n\n-----\n\n### 3. Python版とどう使い分けるべき？\n\n| 比較項目 | Python版 (LangChain) | TypeScript版 (LangChain.js) |\n| :--- | :--- | :--- |\n| **主な用途** | データ分析、実験、バックエンドAPIサーバー | Webアプリ（Next.js等）、フロントエンド、Edge |\n| **強み** | AI/データサイエンス系のライブラリ(Pandas等)が豊富 | 既存のWeb開発スタック(JS/TS)にそのまま組み込める |\n| **実行環境** | Docker, 一般的なサーバー | Node.js, ブラウザ, Vercel Edge, Deno |\n\n**結論：**\n普段からフロントエンドやNode.jsで開発されているのであれば、無理にPythonを覚える必要はなく、**TypeScript版（LangChain.js）を使うのがおすすめ**です。\n\n-----\n\n**次はどのようなサポートが必要ですか？**\n\n  * **TypeScript (Node.js) 環境でのインストール手順**を知りたいですか？\n  * **Next.js** と組み合わせた具体的な実装例が見たいですか？\n  * **Vercel AI SDK**（LangChainとよく比較されるTS向けツール）との違いを知りたいですか？';
     const chunks = mockResponse.match(/[\s\S]{1,5}/g) || [];
 
     for (const chunk of chunks) {
       fullText += chunk;
-      streamTextDelta(responseStream, textId, chunk);
+      streamTextDelta(responseStream, chunk);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-
-    // テキストストリーム終了
-    streamTextEnd(responseStream, textId);
 
     // 履歴を保存
     const messageHistoryId = await saveHistory(
@@ -314,6 +308,7 @@ async function sendMockStream(
 
     // セッション情報を送信
     streamSessionInfo(responseStream, sessionId, messageHistoryId, createdAt);
+    streamFinish(responseStream, "stop");
   } catch (error: unknown) {
     if (fullText.length > 0) {
       await saveHistoryWithNoEvent(
@@ -344,7 +339,6 @@ async function sendBedrockStream(
 ): Promise<void> {
   let fullText = "";
   let citations: SourceDocumentDto[] = [];
-  const textId = `text-${Date.now()}`;
 
   try {
     const embeddings = await generateEmbeddings([query]);
@@ -398,17 +392,11 @@ ${contextText}
 
 回答:`;
 
-    // テキストストリーム開始
-    streamTextStart(responseStream, textId);
-
     // Bedrockからのチャンクを順次送信
     for await (const textChunk of invokeClaudeStream(prompt)) {
       fullText += textChunk;
-      streamTextDelta(responseStream, textId, textChunk);
+      streamTextDelta(responseStream, textChunk);
     }
-
-    // テキストストリーム終了
-    streamTextEnd(responseStream, textId);
 
     const messageHistoryId = await saveHistory(
       sessionId,
@@ -422,6 +410,7 @@ ${contextText}
 
     // セッション情報を送信
     streamSessionInfo(responseStream, sessionId, messageHistoryId, createdAt);
+    streamFinish(responseStream, "stop");
   } catch (error: unknown) {
     if (fullText.length > 0) {
       try {
