@@ -206,7 +206,7 @@ Resources:
             - AttributeName: fileName
               KeyType: RANGE
           Projection:
-            ProjectionType: KEYS_ONLY
+            ProjectionType: ALL
       StreamSpecification:
         StreamViewType: OLD_IMAGE
       TimeToLiveSpecification:

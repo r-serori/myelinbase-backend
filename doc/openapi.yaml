@@ -559,7 +559,6 @@ components:
         - PROCESSING
         - COMPLETED
         - FAILED
-        - DELETING
         - DELETED
         - DELETE_FAILED
     DocumentResponse:
@@ -588,14 +587,10 @@ components:
         tagUpdatedAt:
           type: string
           format: date-time
-        uploadUrlExpiresAt:
-          type: string
         processingStatus:
           type: string
         errorMessage:
           type: string
-        deleteRequested:
-          type: boolean
         downloadUrl:
           type: string
       required:
@@ -855,8 +850,7 @@ paths:
   /chat/stream:
     post:
       summary: Chat Streaming
-      description:
-        Send messages and receive a streaming response using Vercel AI SDK
+      description: Send messages and receive a streaming response using Vercel AI SDK
         v3.x UI Message Stream Protocol (NDJSON format).
       security:
         - BearerAuth: []
@@ -867,8 +861,7 @@ paths:
               $ref: "#/components/schemas/ChatStreamRequest"
       responses:
         "200":
-          description:
-            Successful stream response (NDJSON - Newline Delimited JSON). Each
+          description: Successful stream response (NDJSON - Newline Delimited JSON). Each
             line is a UIMessageChunk object.
           headers:
             X-Vercel-AI-UI-Message-Stream:
@@ -899,8 +892,7 @@ paths:
             text/plain; charset=utf-8:
               schema:
                 type: string
-                description:
-                  NDJSON stream of UIMessageChunk objects. Each line contains a JSON
+                description: NDJSON stream of UIMessageChunk objects. Each line contains a JSON
                   object with a 'type' field.
                 example: |-
                   {"type":"text-start","id":"text-123"}

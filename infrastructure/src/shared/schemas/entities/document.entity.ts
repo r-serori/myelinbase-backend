@@ -26,12 +26,7 @@ export const DocumentEntitySchema = OwnerSchema.extend({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   tagUpdatedAt: z.string().datetime().optional(),
-  // オプショナル
-  uploadUrlExpiresAt: z.string().optional(),
   processingStatus: z.string().optional(),
-  errorMessage: z.string().optional(),
-  deleteRequested: z.boolean().optional(),
-  downloadUrl: z.string().optional(),
 });
 
 export type DocumentEntity = z.infer<typeof DocumentEntitySchema>;

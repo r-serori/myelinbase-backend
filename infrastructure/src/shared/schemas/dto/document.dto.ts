@@ -12,6 +12,8 @@ extendZodWithOpenApi(z);
 
 export const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".md", ".markdown"];
 
+export const TEXT_TYPES = ["text/markdown", "text/x-markdown", "text/plain"];
+
 // =================================================================
 // API公開用 DTO（Entityから派生）
 // =================================================================
@@ -34,10 +36,8 @@ export const DocumentResponseSchema = z
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     tagUpdatedAt: z.string().datetime().optional(),
-    uploadUrlExpiresAt: z.string().optional(),
     processingStatus: z.string().optional(),
     errorMessage: z.string().optional(),
-    deleteRequested: z.boolean().optional(),
     downloadUrl: z.string().optional(),
   })
   .openapi("DocumentResponse");

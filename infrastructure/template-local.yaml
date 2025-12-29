@@ -263,6 +263,57 @@ Resources:
           - "@aws-sdk/*"
 
   # ---------------------------------------------------
+  # Cleanup Worker (DynamoDB Stream) - Local
+  # ---------------------------------------------------
+  # ローカル環境でのクリーンアップ関数
+  # DynamoDB Streams経由でDELETE操作をトリガー
+  # 注意: LocalStack Free版ではDynamoDB Streams Lambda Triggerの
+  # サポートに制限がある可能性があります
+  # ---------------------------------------------------
+  DocumentCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-local-cleanup
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-local-docs
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+      # LocalStackではDynamoDB Streams Event Source Mappingが
+      # 正常に動作しない場合があるため、コメントアウト
+      # 必要に応じて手動テストまたは代替方法を使用
+      # Events:
+      #   Stream:
+      #     Type: DynamoDB
+      #     Properties:
+      #       Stream: !Sub "arn:aws:dynamodb:${AWS::Region}:000000000000:table/${ProjectName}-local-documents/stream/*"
+      #       BatchSize: 10
+      #       StartingPosition: TRIM_HORIZON
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/cleanup/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
   # Documents API
   # ---------------------------------------------------
   DocumentsFunction:
@@ -341,36 +392,6 @@ Resources:
           - src/functions/documents/index.ts
         External:
           - "@aws-sdk/*"
-
-  # ---------------------------------------------------
-  # Health Check
-  # ---------------------------------------------------
-  HealthCheckFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub ${ProjectName}-local-health
-      CodeUri: .
-      Handler: index.handler
-      Description: Health check endpoint
-      Timeout: 5
-      MemorySize: 128
-      Events:
-        HealthCheck:
-          Type: Api
-          Properties:
-            RestApiId: !Ref LocalApiGateway
-            Path: /health
-            Method: GET
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        OutExtension:
-          - .js=.cjs
-        Format: cjs
-        Minify: true
-        Target: es2022
-        EntryPoints:
-          - src/functions/health/index.ts
 
 # ============================================
 # Outputs

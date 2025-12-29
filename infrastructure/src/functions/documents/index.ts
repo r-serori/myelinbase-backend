@@ -11,12 +11,12 @@ import {
   BatchDeleteRequestSchema,
   BatchDeleteResponseDto,
   BatchDeleteResultDto,
-  DeleteDocumentResponseDto,
   DocumentResponseDto,
   FileMetadataDto,
   GetDocumentResponseDto,
   GetDocumentsResponseDto,
   ResultStatusSchema,
+  TEXT_TYPES,
   UpdateTagsRequestDto,
   UpdateTagsRequestSchema,
   UpdateTagsResponseDto,
@@ -97,8 +97,8 @@ export const handler = apiHandler(async (event) => {
     const documentId = pathParameters?.id;
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
-    const response = await deleteDocument(documentId, ownerId);
-    return { statusCode: 202, body: response };
+    await deleteDocument(documentId, ownerId);
+    return { statusCode: 202 };
   }
 
   if (httpMethod === "POST" && path === "/documents/batch-delete") {
@@ -196,8 +196,6 @@ async function getDownloadUrl(
 
   let responseContentType = item.contentType;
 
-  const TEXT_TYPES = ["text/markdown", "text/x-markdown", "text/plain"];
-
   if (TEXT_TYPES.includes(item.contentType)) {
     if (!responseContentType.includes("charset")) {
       responseContentType = `${responseContentType}; charset=utf-8`;
@@ -256,7 +254,7 @@ async function getDocumentById(
 async function deleteDocument(
   documentId: string,
   ownerId: string
-): Promise<DeleteDocumentResponseDto> {
+): Promise<void> {
   const ttl = Math.floor(Date.now() / 1000) + DOCUMENT_TTL_SECONDS;
 
   const command = new UpdateCommand({
@@ -264,8 +262,8 @@ async function deleteDocument(
     Key: { documentId },
     ConditionExpression: "attribute_exists(documentId) AND ownerId = :ownerId",
     UpdateExpression:
-      "SET #status = :deleted, ttl = :ttl, updatedAt = :updatedAt, processingStatus = :active",
-    ExpressionAttributeNames: { "#status": "status" },
+      "SET #status = :deleted, #ttl = :ttl, updatedAt = :updatedAt, processingStatus = :active",
+    ExpressionAttributeNames: { "#status": "status", "#ttl": "ttl" },
     ExpressionAttributeValues: {
       ":deleted": DocumentStatusSchema.enum.DELETED,
       ":ttl": ttl,
@@ -273,22 +271,9 @@ async function deleteDocument(
       ":ownerId": ownerId,
       ":active": "ACTIVE",
     },
-    ReturnValues: "ALL_NEW",
   });
 
-  const response = await docClient.send(command);
-
-  if (!response.Attributes) {
-    throw new AppError(500, ErrorCode.INTERNAL_SERVER_ERROR, {
-      documentId,
-      ownerId,
-      response,
-      error: new Error("DynamoDB update succeeded but returned no attributes"),
-    });
-  }
-
-  const document = toDocumentDTO(response.Attributes as DocumentEntity);
-  return { document };
+  await docClient.send(command);
 }
 
 /**
@@ -454,8 +439,8 @@ async function markDocumentForDeletion(documentId: string, ownerId: string) {
       Key: { documentId },
       ConditionExpression: "ownerId = :ownerId",
       UpdateExpression:
-        "SET #status = :deleted, ttl = :ttl, updatedAt = :now, processingStatus = :active",
-      ExpressionAttributeNames: { "#status": "status" },
+        "SET #status = :deleted, #ttl = :ttl, updatedAt = :now, processingStatus = :active",
+      ExpressionAttributeNames: { "#status": "status", "#ttl": "ttl" },
       ExpressionAttributeValues: {
         ":deleted": DocumentStatusSchema.enum.DELETED,
         ":ttl": ttl,
@@ -493,9 +478,6 @@ async function createUploadRequest(
     createdAt: now,
     updatedAt: now,
     tags: tags,
-    uploadUrlExpiresAt: new Date(
-      Date.now() + PRESIGNED_URL_EXPIRY * 1000
-    ).toISOString(),
   };
 
   await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));

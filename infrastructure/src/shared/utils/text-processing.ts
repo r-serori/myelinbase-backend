@@ -1,10 +1,10 @@
 // infrastructure/src/shared/utils/text-processing.ts
-// テキスト抽出とチャンク分割（S3 Trigger専用）
 
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
 import { Readable } from "stream";
 
+import { TEXT_TYPES } from "../schemas/dto/document.dto";
 import type { DocumentMetadataEntity } from "../schemas/entities/document.entity";
 import { ChunkData } from "../types/processor";
 
@@ -31,11 +31,7 @@ export async function extractTextFromS3(
   // ファイルタイプに応じてテキスト抽出
   if (contentType === "application/pdf") {
     return await extractTextFromPdf(buffer);
-  } else if (
-    contentType === "text/plain" ||
-    contentType === "text/markdown" ||
-    contentType === "text/x-markdown"
-  ) {
+  } else if (TEXT_TYPES.includes(contentType)) {
     return buffer.toString("utf-8");
   } else {
     // その他のファイルタイプは未対応
@@ -180,7 +176,7 @@ export function createDocumentMetadata(
   text: string,
   parentId?: string
 ): DocumentMetadataEntity {
-  const meta: any = {
+  const meta: DocumentMetadataEntity = {
     documentId,
     fileName,
     ownerId,

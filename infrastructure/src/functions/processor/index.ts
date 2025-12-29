@@ -1,5 +1,6 @@
 // src/functions/processor/index.ts
 import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { logger } from "@myelinbase-backend/shared/utils/api-handler";
 
 import { generateEmbeddings } from "../../shared/clients/bedrock";
 import {
@@ -8,6 +9,7 @@ import {
   getPineconeApiKey,
   upsertDocumentVectors,
 } from "../../shared/clients/pinecone";
+import { DocumentStatusSchema } from "../../shared/schemas/entities/document.entity";
 import {
   ChunkData,
   EmbedAndUpsertResponse,
@@ -32,34 +34,42 @@ const s3Client = createS3Client();
 export const handler = async (event: ProcessorEvent) => {
   const input = event.payload || event;
   const documentId = input.documentId;
+  try {
+    if (!documentId) {
+      throw new Error("documentId is required");
+    }
 
-  if (!documentId) {
-    throw new Error("documentId is required");
-  }
+    switch (event.action) {
+      case "updateStatus":
+        if (!event.status) {
+          throw new Error("status is required for updateStatus action");
+        }
+        return await handleUpdateStatus(documentId, event.status, event.error);
 
-  switch (event.action) {
-    case "updateStatus":
-      if (!event.status) {
-        throw new Error("status is required for updateStatus action");
-      }
-      return await handleUpdateStatus(documentId, event.status, event.error);
+      case "extractAndChunk":
+        if (!input.bucket || !input.key) {
+          throw new Error(
+            "bucket and key are required for extractAndChunk action"
+          );
+        }
+        return await handleExtractAndChunk(input.bucket, input.key, documentId);
 
-    case "extractAndChunk":
-      if (!input.bucket || !input.key) {
-        throw new Error(
-          "bucket and key are required for extractAndChunk action"
-        );
-      }
-      return await handleExtractAndChunk(input.bucket, input.key, documentId);
+      case "embedAndUpsert":
+        if (!input.chunks) {
+          throw new Error("chunks are required for embedAndUpsert action");
+        }
+        return await handleEmbedAndUpsert(documentId, input.chunks);
 
-    case "embedAndUpsert":
-      if (!input.chunks) {
-        throw new Error("chunks are required for embedAndUpsert action");
-      }
-      return await handleEmbedAndUpsert(documentId, input.chunks);
-
-    default:
-      throw new Error(`Unknown action: ${event.action}`);
+      default:
+        throw new Error(`Unknown action: ${event.action}`);
+    }
+  } catch (error) {
+    logger("ERROR", "Processor error", {
+      documentId,
+      action: event.action,
+      error,
+    });
+    throw error;
   }
 };
 
@@ -83,7 +93,10 @@ async function handleUpdateStatus(
   }
 
   let finalExpr = updateExpr;
-  if (status === "COMPLETED" || status === "FAILED") {
+  if (
+    status === DocumentStatusSchema.enum.COMPLETED ||
+    status === DocumentStatusSchema.enum.FAILED
+  ) {
     finalExpr += " REMOVE processingStatus";
   } else {
     finalExpr += ", processingStatus = :active";

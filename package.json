@@ -17,6 +17,8 @@
     "local:reset": "cd local-dev && docker-compose down -v && docker-compose up -d",
     "local:reset:nocache": "cd local-dev && docker-compose down -v && docker-compose build --no-cache && docker-compose up -d",
     "local:logs": "cd local-dev && docker-compose logs -f",
+    "local:logs:localstack": "cd local-dev && docker-compose logs -f localstack",
+    "local:logs:documents": "awslocal logs filter-log-events --log-group-name /aws/lambda/myelinbase-local-documents --start-time $(date -d '10 minutes ago' +%s)000 --limit 20",
     "local:logs:simulator": "cd local-dev && docker-compose logs -f rag-status-simulator",
     "api:start": "cd infrastructure && sam local start-api --parameter-overrides Stage=local UseBedrock=false DynamoDBEndpoint=http://host.docker.internal:8000 S3Endpoint=http://host.docker.internal:4566 FrontendUrl=http://localhost:3001 --docker-network rag-network --env-vars ../local-dev/env.local.json --warm-containers EAGER",
     "// --- Build & Deploy ---": "",

@@ -371,7 +371,7 @@ describe("Documents Function (Auth Integration)", () => {
       const updateArg = updateCalls[0].args[0].input as any;
       expect(updateArg.Key.documentId).toBe("old-doc-1");
       expect(updateArg.UpdateExpression).toContain(
-        "SET deleteRequested = :true"
+        "SET #status = :deleted, #ttl = :ttl, updatedAt = :now, processingStatus = :active"
       );
     });
 
@@ -456,7 +456,7 @@ describe("Documents Function (Auth Integration)", () => {
       const updateArgs = ddbMock.call(0).args[0].input as any;
       expect(updateArgs.Key.documentId).toBe("doc-1");
       expect(updateArgs.UpdateExpression).toContain(
-        "SET deleteRequested = :true"
+        "SET #status = :deleted, #ttl = :ttl, updatedAt = :updatedAt, processingStatus = :active"
       );
     });
   });

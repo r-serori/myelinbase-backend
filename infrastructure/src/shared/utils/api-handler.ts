@@ -178,7 +178,6 @@ export const apiHandler = (logic: LogicFunction) => {
         headers: errorHeaders,
         body: JSON.stringify({
           errorCode: error.errorCode,
-          message: error.message,
         }),
       };
     }

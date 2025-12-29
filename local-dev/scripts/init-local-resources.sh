@@ -44,7 +44,7 @@ aws dynamodb create-table \
             {
                 \"IndexName\": \"FileNameIndex\",
                 \"KeySchema\": [{\"AttributeName\":\"ownerId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"fileName\",\"KeyType\":\"RANGE\"}],
-                \"Projection\": {\"ProjectionType\":\"KEYS_ONLY\"},
+                \"Projection\": {\"ProjectionType\":\"ALL\"},
                 \"ProvisionedThroughput\": {\"ReadCapacityUnits\":5,\"WriteCapacityUnits\":5}
             }
         ]" \

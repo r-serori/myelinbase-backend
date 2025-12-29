@@ -132,8 +132,7 @@ URLの有効期限は1時間です。
 {
   "document": {
     "documentId": "doc-1",
-    "status": "DELETING",
-    "deleteRequested": true
+    "status": "DELETING"
   }
 }
 ```
