@@ -278,7 +278,7 @@ describe("Chat Function Integration Tests", () => {
 
       // レスポンスボディ (NDJSON / Vercel AI SDK v3) の検証
       expect(body).toContain('"type":"text-delta"');
-      expect(body).toContain('"type":"text-end"');
+      expect(body).toContain('"type":"finish"');
       expect(body).toContain("Hello, ");
       expect(body).toContain("World!");
 
@@ -331,43 +331,53 @@ describe("Chat Function Integration Tests", () => {
     });
 
     it("should save partial history when error occurs during streaming", async () => {
-      // 1. Pinecone OK
-      mockSearchVectorsByOwner.mockResolvedValue([]);
+      // console.errorを一時的に抑制（意図的なエラーのログ出力を抑制）
+      const consoleErrorSpy = jest
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
 
-      // 2. Claude Stream fails midway
-      mockInvokeClaudeStream.mockImplementation(function* () {
-        yield "Part 1";
-        throw new Error("Stream Error");
-      });
+      try {
+        // 1. Pinecone OK
+        mockSearchVectorsByOwner.mockResolvedValue([]);
 
-      ddbMock.on(GetCommand).resolves({});
-      ddbMock.on(PutCommand).resolves({});
+        // 2. Claude Stream fails midway
+        mockInvokeClaudeStream.mockImplementation(function* () {
+          yield "Part 1";
+          throw new Error("Stream Error");
+        });
 
-      const event = createEvent(
-        "POST",
-        "/chat/stream",
-        createMessageBody("Error test", "session-error")
-      );
+        ddbMock.on(GetCommand).resolves({});
+        ddbMock.on(PutCommand).resolves({});
 
-      const result = await invokeHandler(event);
+        const event = createEvent(
+          "POST",
+          "/chat/stream",
+          createMessageBody("Error test", "session-error")
+        );
 
-      // SSEとしてはエラーイベントを流して終了するが、statusは200
-      expect(result.statusCode).toBe(200);
-      const body = result.body;
+        const result = await invokeHandler(event);
 
-      // エラーイベント確認
-      expect(body).toContain('"type":"error"');
+        // SSEとしてはエラーイベントを流して終了するが、statusは200
+        expect(result.statusCode).toBe(200);
+        const body = result.body;
 
-      // 部分保存の確認 (Part 1 までが保存されているべき)
-      const putCalls = ddbMock.commandCalls(PutCommand);
-      const msgSaveCall = putCalls.find((call) => {
-        const item = (call.args[0].input as any).Item;
-        return item.sk && item.sk.startsWith("MSG#");
-      });
-      // エラー時でも saveHistoryWithNoEvent が呼ばれるはず
-      expect(msgSaveCall).toBeDefined();
-      const savedItem = (msgSaveCall!.args[0].input as any).Item;
-      expect(savedItem.aiResponse).toBe("Part 1");
+        // エラーイベント確認
+        expect(body).toContain('"type":"error"');
+
+        // 部分保存の確認 (Part 1 までが保存されているべき)
+        const putCalls = ddbMock.commandCalls(PutCommand);
+        const msgSaveCall = putCalls.find((call) => {
+          const item = (call.args[0].input as any).Item;
+          return item.sk && item.sk.startsWith("MSG#");
+        });
+        // エラー時でも saveHistoryWithNoEvent が呼ばれるはず
+        expect(msgSaveCall).toBeDefined();
+        const savedItem = (msgSaveCall!.args[0].input as any).Item;
+        expect(savedItem.aiResponse).toBe("Part 1");
+      } finally {
+        // console.errorのモックを復元
+        consoleErrorSpy.mockRestore();
+      }
     });
   });
 
@@ -378,8 +388,16 @@ describe("Chat Function Integration Tests", () => {
     it("should update feedback successfully", async () => {
       ddbMock.on(UpdateCommand).resolves({
         Attributes: {
-          feedback: "GOOD",
+          pk: "SESSION#session-1",
+          sk: "MSG#2024-01-01T00:00:00Z",
           historyId: "msg-1",
+          sessionId: "session-1",
+          ownerId: "user-123",
+          userQuery: "Test query",
+          aiResponse: "Test response",
+          sourceDocuments: [],
+          feedback: "GOOD",
+          createdAt: "2024-01-01T00:00:00Z",
         },
       });
 
@@ -464,11 +482,16 @@ describe("Chat Function Integration Tests", () => {
       ddbMock.on(QueryCommand).resolves({
         Items: [
           {
+            pk: "SESSION#session-1",
+            sk: "MSG#2024-01-01T00:00:00Z",
             historyId: "msg-1",
+            sessionId: "session-1",
             ownerId: "user-123",
             userQuery: "Hi",
             aiResponse: "Hello",
-            createdAt: "2024-01-01",
+            sourceDocuments: [],
+            feedback: "NONE",
+            createdAt: "2024-01-01T00:00:00Z",
           },
         ],
         LastEvaluatedKey: { pk: "key", sk: "key" },

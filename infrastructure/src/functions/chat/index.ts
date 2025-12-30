@@ -714,7 +714,7 @@ async function getSessions(
     sessions: sessions.map((s) => toSessionDTO(s)),
   };
 
-  const responseStream = streamHelper.init();
+  const responseStream = streamHelper.init(200, "application/json");
   responseStream.write(JSON.stringify(responseData));
   responseStream.end();
 }
@@ -779,7 +779,7 @@ async function getSessionMessages(
     nextCursor,
   };
 
-  const responseStream = streamHelper.init();
+  const responseStream = streamHelper.init(200, "application/json");
   responseStream.write(JSON.stringify(responseData));
   responseStream.end();
 }
