@@ -45,12 +45,12 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-  
+
   PineconeApiKeySecretName:
     Type: String
     Default: pinecone-api-key
     Description: SecretsManager secret name for Pinecone API Key
-  
+
   PineconeIndexName:
     Type: String
     Default: myelinbase-documents
@@ -58,7 +58,7 @@ Parameters:
   ChatModelId:
     Type: String
     Default: "anthropic.claude-3-haiku-20240307-v1:0"
-  
+
   EmbeddingModelId:
     Type: String
     Default: "amazon.titan-embed-text-v1"
@@ -133,7 +133,7 @@ Resources:
         - ALLOW_USER_PASSWORD_AUTH
       PreventUserExistenceErrors: ENABLED
       # 必要であればCallbackURLs等を設定
-      # CallbackURLs: 
+      # CallbackURLs:
       #   - !Ref FrontendUrl
 
   # ---------------------------------------------------
@@ -149,7 +149,7 @@ Resources:
         AllowHeaders: "'*'"
         AllowOrigin: !Sub "'${FrontendUrl}'"
         AllowCredentials: "'true'"
-      
+
       # --- Authentication Configuration ---
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
@@ -157,10 +157,9 @@ Resources:
           CognitoAuthorizer:
             UserPoolArn: !GetAtt CognitoUserPool.Arn
             IdentitySource: method.request.header.Authorization
-      
+
       # Custom Domain Configuration (Prod Only)
-      Domain:
-        !If
+      Domain: !If
         - IsProd
         - DomainName: !Ref DomainName
           CertificateArn: !Ref CertificateArn
@@ -634,10 +633,15 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: "API Gateway Endpoint URL"
-    Value: !If [IsProd, !Sub "https://${DomainName}", !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"]
+    Value:
+      !If [
+        IsProd,
+        !Sub "https://${DomainName}",
+        !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}",
+      ]
 
   ChatAgentEndpoint:
-    Description: Streaming Function URL for Chat Agent (Note: Function URL has NO Auth by default)
+    Description: "Streaming Function URL for Chat Agent (Note: Function URL has NO Auth by default)"
     Value: !GetAtt ChatAgentFunctionUrl.FunctionUrl
 
   CognitoUserPoolId:

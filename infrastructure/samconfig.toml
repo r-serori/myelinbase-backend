@@ -26,10 +26,6 @@ parameter_overrides = [
   "ProjectName=myelinbase-backend",
   # 開発環境: Vercel Preview URL等からのアクセスを許可するためにワイルドカード推奨
   "FrontendUrl=*", 
-  # Dev環境ではカスタムドメインを使用しない (空文字)
-  "DomainName=",
-  "CertificateArn=",
-  "HostedZoneId=",
   # AWS環境なのでBedrockを有効化
   "UseBedrock=false",
   "PineconeApiKeySecretName=pinecone-api-key"
