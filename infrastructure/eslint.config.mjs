@@ -81,7 +81,7 @@ export default tseslint.config(
       "no-console": "off",
 
       // any型の使用を警告 (厳しくするなら error)
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
 
       // 非同期関数の await 忘れ防止 (重要)
       "@typescript-eslint/require-await": "error",
