@@ -2,12 +2,32 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
   InvokeModelWithResponseStreamCommand,
+  ResponseStream,
 } from "@aws-sdk/client-bedrock-runtime";
 import { mockClient } from "aws-sdk-client-mock";
 
 import { generateEmbeddings, invokeClaudeStream } from "./bedrock";
 
 const bedrockMock = mockClient(BedrockRuntimeClient);
+
+// ストリームチャンクの型定義
+interface StreamChunk {
+  chunk?: {
+    bytes?: Uint8Array;
+  };
+}
+
+// AsyncIterableを作成するヘルパー
+function createAsyncIterable<T>(items: T[]): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      for (const item of items) {
+        await Promise.resolve();
+        yield item;
+      }
+    },
+  };
+}
 
 describe("Bedrock Client", () => {
   beforeEach(() => {
@@ -16,10 +36,19 @@ describe("Bedrock Client", () => {
 
   describe("generateEmbeddings", () => {
     it("should batch requests and return embeddings", async () => {
+      const bodyBytes = new TextEncoder().encode(
+        JSON.stringify({ embedding: [0.1, 0.2, 0.3] })
+      );
+      // Uint8ArrayBlobAdapter互換のオブジェクトを作成
+      const body = Object.assign(bodyBytes, {
+        transformToString: async () =>
+          Promise.resolve(new TextDecoder().decode(bodyBytes)),
+      });
+
       bedrockMock.on(InvokeModelCommand).resolves({
-        body: new TextEncoder().encode(
-          JSON.stringify({ embedding: [0.1, 0.2, 0.3] })
-        ) as any,
+        body: body as unknown as typeof body & {
+          transformToString: () => string;
+        },
       });
 
       const texts = ["text1", "text2", "text3", "text4", "text5", "text6"]; // 6 items (batch size 5 + 1)
@@ -38,34 +67,35 @@ describe("Bedrock Client", () => {
 
   describe("invokeClaudeStream", () => {
     it("should yield text chunks from stream", async () => {
-      // ストリームのチャンクを模倣
-      const mockStream = {
-        [Symbol.asyncIterator]: function* () {
-          yield {
-            chunk: {
-              bytes: new TextEncoder().encode(
-                JSON.stringify({
-                  type: "content_block_delta",
-                  delta: { text: "Hello" },
-                })
-              ),
-            },
-          };
-          yield {
-            chunk: {
-              bytes: new TextEncoder().encode(
-                JSON.stringify({
-                  type: "content_block_delta",
-                  delta: { text: " World" },
-                })
-              ),
-            },
-          };
+      // ストリームのチャンクを作成
+      const streamChunks: StreamChunk[] = [
+        {
+          chunk: {
+            bytes: new TextEncoder().encode(
+              JSON.stringify({
+                type: "content_block_delta",
+                delta: { text: "Hello" },
+              })
+            ),
+          },
         },
-      };
+        {
+          chunk: {
+            bytes: new TextEncoder().encode(
+              JSON.stringify({
+                type: "content_block_delta",
+                delta: { text: " World" },
+              })
+            ),
+          },
+        },
+      ];
+
+      // AsyncIterableとしてストリームを作成
+      const mockStream = createAsyncIterable(streamChunks);
 
       bedrockMock.on(InvokeModelWithResponseStreamCommand).resolves({
-        body: mockStream as any,
+        body: mockStream as unknown as AsyncIterable<ResponseStream>,
       });
 
       const chunks: string[] = [];

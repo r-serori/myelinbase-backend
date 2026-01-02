@@ -11,12 +11,10 @@ import {
   UIMessageChunkDto,
 } from "../schemas/dto/chat.dto";
 
-// =================================================================
-// Vercel AI SDK v3.x UI Message Stream Protocol 準拠
-// https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
-// =================================================================
-
 /**
+ * Vercel AI SDK v3.x UI Message Stream Protocol 準拠
+ * https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
+ *
  * UIMessageChunk を NDJSON 形式でフォーマット
  */
 function formatChunk(chunk: UIMessageChunkDto): string {
@@ -33,7 +31,6 @@ export function streamTextDelta(writer: StreamWriter, textDelta: string): void {
 
 /**
  * ソースを送信
- * UI Message Stream Protocol: {"type":"source","source":{...}}
  */
 export function streamSource(
   writer: StreamWriter,
@@ -73,7 +70,6 @@ export function streamCitations(
 
 /**
  * セッション情報を送信
- * UI Message Stream Protocol: {"type":"data","data":[...]}
  */
 export function streamSessionInfo(
   writer: StreamWriter,

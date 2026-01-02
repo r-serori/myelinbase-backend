@@ -27,9 +27,21 @@ describe("Cleanup Function (DynamoDB Stream)", () => {
     mockDeleteS3Object = jest.fn().mockResolvedValue(undefined);
     mockCreateS3Client = jest.fn().mockReturnValue({}); // 空のクライアントオブジェクト
 
-    // DynamoDB unmarshall のモック
-    // テストデータ入力を簡単にするため、入力をそのまま返す（または必要な形にする）実装にします
-    mockUnmarshall = jest.fn().mockImplementation((input) => input);
+    mockUnmarshall = jest
+      .fn()
+      .mockImplementation((input: Record<string, unknown>) => {
+        const result: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(input)) {
+          if (value && typeof value === "object" && "S" in value) {
+            result[key] = (value as { S: string }).S;
+          } else if (value && typeof value === "object" && "N" in value) {
+            result[key] = Number((value as { N: string }).N);
+          } else {
+            result[key] = value;
+          }
+        }
+        return result;
+      });
 
     mockCreatePineconeClient = jest.fn().mockReturnValue({});
     mockGetPineconeApiKey = jest.fn().mockResolvedValue("mock-api-key");
@@ -77,17 +89,22 @@ describe("Cleanup Function (DynamoDB Stream)", () => {
    */
   const createStreamEvent = (
     eventName: "INSERT" | "MODIFY" | "REMOVE",
-    oldImage: Record<string, any> | null
-  ): DynamoDBStreamEvent => ({
-    Records: [
-      {
-        eventName,
-        dynamodb: {
-          OldImage: oldImage as any,
+    oldImage: Record<string, unknown> | null | undefined
+  ): DynamoDBStreamEvent => {
+    type StreamRecord = NonNullable<
+      DynamoDBStreamEvent["Records"][0]["dynamodb"]
+    >;
+    return {
+      Records: [
+        {
+          eventName,
+          dynamodb: {
+            OldImage: (oldImage ?? undefined) as StreamRecord["OldImage"],
+          },
         },
-      } as any,
-    ],
-  });
+      ],
+    };
+  };
 
   it("should process REMOVE event and delete resources from S3 and Pinecone", async () => {
     const event = createStreamEvent("REMOVE", {
@@ -211,25 +228,38 @@ describe("Cleanup Function (DynamoDB Stream)", () => {
   });
 
   it("should handle multiple records in one event", async () => {
+    type StreamRecord = NonNullable<
+      DynamoDBStreamEvent["Records"][0]["dynamodb"]
+    >;
     const event: DynamoDBStreamEvent = {
       Records: [
         {
           eventName: "REMOVE",
           dynamodb: {
-            OldImage: { documentId: "doc-1", s3Key: "key-1" } as any,
+            OldImage: {
+              documentId: { S: "doc-1" },
+              s3Key: { S: "key-1" },
+            } as StreamRecord["OldImage"],
           },
         },
         {
           eventName: "INSERT", // 無視されるべき
-          dynamodb: { NewImage: { documentId: "doc-2" } as any },
+          dynamodb: {
+            NewImage: {
+              documentId: { S: "doc-2" },
+            } as StreamRecord["NewImage"],
+          },
         },
         {
           eventName: "REMOVE",
           dynamodb: {
-            OldImage: { documentId: "doc-3", s3Key: "key-3" } as any,
+            OldImage: {
+              documentId: { S: "doc-3" },
+              s3Key: { S: "key-3" },
+            } as StreamRecord["OldImage"],
           },
         },
-      ] as any,
+      ],
     };
 
     await handler(event);

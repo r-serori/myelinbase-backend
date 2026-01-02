@@ -17,10 +17,6 @@ export const MAX_TAGS = 20;
 
 export const TEXT_TYPES = ["text/markdown", "text/x-markdown", "text/plain"];
 
-// =================================================================
-// API公開用 DTO（Entityから派生）
-// =================================================================
-
 export const DocumentStatusSchema = z
   .enum(DOCUMENT_STATUS)
   .openapi("DocumentStatus");
@@ -68,9 +64,6 @@ export const FileMetadataSchema = z
   .openapi("FileMetadata");
 
 export type FileMetadataDto = z.infer<typeof FileMetadataSchema>;
-// =================================================================
-// リクエスト型定義
-// =================================================================
 
 export const UploadRequestRequestSchema = z
   .object({
@@ -110,10 +103,6 @@ export const BatchDeleteRequestSchema = z
   .openapi("BatchDeleteRequest");
 
 export type BatchDeleteRequestDto = z.infer<typeof BatchDeleteRequestSchema>;
-
-// =================================================================
-// レスポンス型定義
-// =================================================================
 
 export const GetDocumentsResponseSchema = z
   .object({
@@ -217,10 +206,6 @@ export const UpdateTagsResponseSchema = z
   .openapi("UpdateTagsResponse");
 
 export type UpdateTagsResponseDto = z.infer<typeof UpdateTagsResponseSchema>;
-
-// =================================================================
-// エラーレスポンス定義
-// =================================================================
 
 export const UploadRequestErrorResponseSchema = z
   .object({

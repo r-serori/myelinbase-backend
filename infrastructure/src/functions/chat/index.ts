@@ -61,10 +61,6 @@ import {
   UI_MESSAGE_STREAM_CONTENT_TYPE,
 } from "../../shared/utils/stream-helper";
 
-// =================================================================
-// Configuration & Clients
-// =================================================================
-
 const TABLE_NAME = process.env.TABLE_NAME!;
 const IS_LOCAL_STAGE = process.env.STAGE! === "local";
 const USE_BEDROCK = process.env.USE_BEDROCK! === "true";
@@ -84,10 +80,6 @@ const verifier =
         clientId: CLIENT_ID,
       })
     : null;
-
-// =================================================================
-// Main Handler
-// =================================================================
 
 export const handler = streamApiHandler(async (event, streamHelper) => {
   const { httpMethod, path, queryStringParameters } = event;
@@ -182,10 +174,6 @@ async function extractOwnerId(event: APIGatewayProxyEvent): Promise<string> {
     throw new AppError(401, ErrorCode.PERMISSION_DENIED);
   }
 }
-
-// =================================================================
-// ビジネスロジック
-// =================================================================
 
 /**
  * チャットストリーミング POST /chat/stream
@@ -438,10 +426,6 @@ ${contextText}
   }
 }
 
-// -----------------------------------------------------------
-// DB Helper Functions
-// -----------------------------------------------------------
-
 /**
  * 履歴保存（イベント送信は呼び出し元で行うよう変更し、IDを返す）
  */
@@ -575,10 +559,6 @@ async function saveMessageItem(
     })
   );
 }
-
-// -----------------------------------------------------------
-// Other Route Handlers (No changes required for Vercel Stream)
-// -----------------------------------------------------------
 
 async function updateSessionName(
   streamHelper: StreamHelper,

@@ -1,5 +1,6 @@
 // infrastructure/src/functions/cleanup/index.ts
 
+import { AttributeValue } from "@aws-sdk/client-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { DynamoDBStreamEvent } from "aws-lambda";
 
@@ -15,6 +16,11 @@ const BUCKET_NAME = process.env.BUCKET_NAME!;
 
 const s3Client = createS3Client();
 
+interface CleanupDocumentData {
+  documentId?: string;
+  s3Key?: string;
+}
+
 export const handler = async (event: DynamoDBStreamEvent): Promise<void> => {
   for (const record of event.Records) {
     if (record.eventName !== "REMOVE") {
@@ -26,8 +32,8 @@ export const handler = async (event: DynamoDBStreamEvent): Promise<void> => {
     }
 
     const oldImage = unmarshall(
-      record.dynamodb.OldImage as Record<string, any>
-    );
+      record.dynamodb.OldImage as Record<string, AttributeValue>
+    ) as CleanupDocumentData;
     const { documentId, s3Key } = oldImage;
 
     const promises: Promise<void>[] = [];
@@ -36,11 +42,11 @@ export const handler = async (event: DynamoDBStreamEvent): Promise<void> => {
       promises.push(
         deleteS3Object(s3Client, BUCKET_NAME, s3Key)
           .then(() => {})
-          .catch((err) => {
+          .catch((err: unknown) => {
             logger("ERROR", "Failed to delete S3 object", {
               documentId,
               s3Key,
-              error: err instanceof Error ? err.message : err,
+              error: err instanceof Error ? err.message : String(err),
             });
           })
       );
@@ -51,11 +57,13 @@ export const handler = async (event: DynamoDBStreamEvent): Promise<void> => {
         try {
           const apiKey = await getPineconeApiKey();
           const pinecone = createPineconeClient(apiKey);
-          await deleteDocumentVectors(pinecone, documentId);
-        } catch (err) {
+          if (documentId) {
+            await deleteDocumentVectors(pinecone, documentId);
+          }
+        } catch (err: unknown) {
           logger("ERROR", "Failed to delete Pinecone vectors", {
             documentId,
-            error: err instanceof Error ? err.message : err,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
       })()

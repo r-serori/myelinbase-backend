@@ -16,10 +16,6 @@ const bearerAuth = registry.registerComponent("securitySchemes", "BearerAuth", {
   bearerFormat: "JWT",
 });
 
-// =================================================================
-// 共通スキーマ登録
-// =================================================================
-
 const ErrorCodeSchema = z.nativeEnum(ErrorCode).openapi("ErrorCode");
 registry.register("ErrorCode", ErrorCodeSchema);
 
@@ -29,10 +25,6 @@ const ErrorResponseSchema = z
   })
   .openapi("ErrorResponse");
 registry.register("ErrorResponse", ErrorResponseSchema);
-
-// =================================================================
-// Chat スキーマ登録
-// =================================================================
 
 registry.register("SourceDocument", ChatDTO.SourceDocumentSchema);
 registry.register("FeedbackType", ChatDTO.FeedbackTypeSchema);
@@ -99,10 +91,6 @@ registry.register("UIMessageChunk", ChatDTO.UIMessageChunkSchema);
 registry.register("SessionInfoPayload", ChatDTO.SessionInfoPayloadSchema);
 registry.register("CitationsPayload", ChatDTO.CitationsPayloadSchema);
 
-// =================================================================
-// Document スキーマ登録
-// =================================================================
-
 registry.register("DocumentStatus", DocumentDTO.DocumentStatusSchema);
 registry.register("DocumentResponse", DocumentDTO.DocumentResponseSchema);
 registry.register("FileMetadata", DocumentDTO.FileMetadataSchema);
@@ -161,10 +149,6 @@ registry.register(
   "DeleteDocumentErrorResponse",
   DocumentDTO.DeleteDocumentErrorResponseSchema
 );
-
-// =================================================================
-// パス定義 (Chat API)
-// =================================================================
 
 registry.registerPath({
   method: "post",
@@ -423,10 +407,6 @@ registry.registerPath({
     },
   },
 });
-
-// =================================================================
-// パス定義 (Document API)
-// =================================================================
 
 registry.registerPath({
   method: "get",

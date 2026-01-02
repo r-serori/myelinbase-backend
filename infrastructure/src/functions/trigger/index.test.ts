@@ -1,12 +1,14 @@
 import {
   InvokeCommand as _InvokeCommand,
+  InvokeCommandInput,
   LambdaClient as _LambdaClient,
 } from "@aws-sdk/client-lambda";
 import {
   SFNClient as _SFNClient,
   StartExecutionCommand as _StartExecutionCommand,
+  StartExecutionCommandInput,
 } from "@aws-sdk/client-sfn";
-import { S3Event } from "aws-lambda";
+import { S3Event, S3EventRecord } from "aws-lambda";
 import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
 
 // 型定義のためのインポート（実行時のインポートは動的importで行う）
@@ -56,11 +58,33 @@ describe("Trigger Function", () => {
   ): S3Event => ({
     Records: [
       {
-        s3: {
-          bucket: { name: bucket },
-          object: { key: key },
+        eventVersion: "2.1",
+        eventSource: "aws:s3",
+        awsRegion: "us-east-1",
+        eventTime: new Date().toISOString(),
+        eventName: "ObjectCreated:Put",
+        userIdentity: { principalId: "test" },
+        requestParameters: { sourceIPAddress: "127.0.0.1" },
+        responseElements: {
+          "x-amz-request-id": "test",
+          "x-amz-id-2": "test",
         },
-      } as any,
+        s3: {
+          s3SchemaVersion: "1.0",
+          configurationId: "test",
+          bucket: {
+            name: bucket,
+            ownerIdentity: { principalId: "test" },
+            arn: `arn:aws:s3:::${bucket}`,
+          },
+          object: {
+            key: key,
+            size: 1024,
+            eTag: "test-etag",
+            sequencer: "test-sequencer",
+          },
+        },
+      } as S3EventRecord,
     ],
   });
 
@@ -87,11 +111,12 @@ describe("Trigger Function", () => {
       await handler(event);
 
       expect(sfnMock.calls()).toHaveLength(1);
-      const callArgs = sfnMock.call(0).args[0].input as any;
+      const callArgs = sfnMock.call(0).args[0]
+        .input as StartExecutionCommandInput;
 
       expect(callArgs.stateMachineArn).toBe(process.env.STATE_MACHINE_ARN);
 
-      const input = JSON.parse(callArgs.input);
+      const input = JSON.parse(callArgs.input || "{}");
       expect(input).toEqual({
         bucket: "test-bucket",
         key: validKey,
@@ -111,8 +136,9 @@ describe("Trigger Function", () => {
       await handler(event);
 
       expect(sfnMock.calls()).toHaveLength(1);
-      const callArgs = sfnMock.call(0).args[0].input as any;
-      const input = JSON.parse(callArgs.input);
+      const callArgs = sfnMock.call(0).args[0]
+        .input as StartExecutionCommandInput;
+      const input = JSON.parse(callArgs.input || "{}");
 
       expect(input.key).toBe("uploads/user-123/doc 789");
       expect(input.documentId).toBe("doc 789");
@@ -154,9 +180,19 @@ describe("Trigger Function", () => {
         chunks: ["chunk1", "chunk2"],
       };
 
+      const payloadBytes = new TextEncoder().encode(
+        JSON.stringify(extractResult)
+      );
+      // Uint8ArrayBlobAdapter互換のオブジェクトを作成
+      const payload = Object.assign(payloadBytes, {
+        transformToString: async () =>
+          Promise.resolve(new TextDecoder().decode(payloadBytes)),
+      });
+
       lambdaMock.on(InvokeCommand).resolves({
-        // Payloadの型不一致エラー (Uint8Array vs Uint8ArrayBlobAdapter) を回避するために as any を使用
-        Payload: new TextEncoder().encode(JSON.stringify(extractResult)) as any,
+        Payload: payload as unknown as typeof payload & {
+          transformToString: () => string;
+        },
         StatusCode: 200,
       });
 
@@ -168,11 +204,9 @@ describe("Trigger Function", () => {
       // 4回呼ばれることを期待 (Status Update -> Extract -> Embed -> Status Update)
       expect(lambdaMock.calls()).toHaveLength(4);
 
-      // 修正: inputをanyにキャストしてPayloadへのアクセスエラーを回避
       // Step 1: Update status to PROCESSING
-      const call1 = JSON.parse(
-        (lambdaMock.call(0).args[0].input as any).Payload as string
-      );
+      const call1Input = lambdaMock.call(0).args[0].input as InvokeCommandInput;
+      const call1 = JSON.parse((call1Input.Payload as string) || "{}");
       expect(call1).toEqual({
         action: "updateStatus",
         documentId: "doc-local",
@@ -180,9 +214,8 @@ describe("Trigger Function", () => {
       });
 
       // Step 2: Extract and Chunk
-      const call2 = JSON.parse(
-        (lambdaMock.call(1).args[0].input as any).Payload as string
-      );
+      const call2Input = lambdaMock.call(1).args[0].input as InvokeCommandInput;
+      const call2 = JSON.parse((call2Input.Payload as string) || "{}");
       expect(call2).toEqual({
         action: "extractAndChunk",
         documentId: "doc-local",
@@ -191,9 +224,8 @@ describe("Trigger Function", () => {
       });
 
       // Step 3: Embed and Upsert (前のステップの結果を使う)
-      const call3 = JSON.parse(
-        (lambdaMock.call(2).args[0].input as any).Payload as string
-      );
+      const call3Input = lambdaMock.call(2).args[0].input as InvokeCommandInput;
+      const call3 = JSON.parse((call3Input.Payload as string) || "{}");
       expect(call3).toEqual({
         action: "embedAndUpsert",
         documentId: "doc-local",
@@ -201,9 +233,8 @@ describe("Trigger Function", () => {
       });
 
       // Step 4: Update status to COMPLETED
-      const call4 = JSON.parse(
-        (lambdaMock.call(3).args[0].input as any).Payload as string
-      );
+      const call4Input = lambdaMock.call(3).args[0].input as InvokeCommandInput;
+      const call4 = JSON.parse((call4Input.Payload as string) || "{}");
       expect(call4).toEqual({
         action: "updateStatus",
         documentId: "doc-local",
@@ -227,9 +258,9 @@ describe("Trigger Function", () => {
       expect(lambdaMock.calls()).toHaveLength(3);
 
       // 最後がFAILED更新であることを確認
-      const finalCall = JSON.parse(
-        (lambdaMock.call(2).args[0].input as any).Payload as string
-      );
+      const finalCallInput = lambdaMock.call(2).args[0]
+        .input as InvokeCommandInput;
+      const finalCall = JSON.parse((finalCallInput.Payload as string) || "{}");
       expect(finalCall).toMatchObject({
         action: "updateStatus",
         documentId: "doc-error",

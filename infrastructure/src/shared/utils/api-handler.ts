@@ -9,40 +9,72 @@ import { ErrorCode } from "../types/error-code";
 
 import { getCorsHeaders } from "./response";
 
+interface LambdaStreamMetadata {
+  statusCode: number;
+  headers?: Record<string, string | boolean>;
+}
+
+interface LambdaWritableStream {
+  write: (chunk: string | Uint8Array) => void;
+  end: () => void;
+}
+
+declare const awslambda: {
+  streamifyResponse: (
+    handler: (
+      event: APIGatewayProxyEvent,
+      responseStream: LambdaWritableStream,
+      context: Context
+    ) => Promise<void>
+  ) => (
+    event: APIGatewayProxyEvent,
+    context: Context
+  ) => Promise<APIGatewayProxyResult>;
+  HttpResponseStream: {
+    from: (
+      stream: LambdaWritableStream,
+      metadata: LambdaStreamMetadata
+    ) => LambdaWritableStream;
+  };
+};
+
 export class AppError extends Error {
   constructor(
     public statusCode: number,
     public errorCode?: ErrorCode,
-    public details?: Record<string, any>
+    public details?: Record<string, unknown>
   ) {
     super(errorCode || `HTTP_${statusCode}`);
     this.name = "AppError";
   }
 }
 
-// =================================================================
-// 共通ロガー (Structured Logger)
-// =================================================================
-
-function normalizeError(error: any): AppError {
+function normalizeError(error: unknown): AppError {
   if (error instanceof AppError) {
     return error;
   }
 
-  if (error.name === "ConditionalCheckFailedException") {
-    return new AppError(404, ErrorCode.RESOURCE_NOT_FOUND);
+  // Error型のインスタンスかチェック
+  if (error instanceof Error) {
+    if (error.name === "ConditionalCheckFailedException") {
+      return new AppError(404, ErrorCode.RESOURCE_NOT_FOUND);
+    }
+    const unknownError = new AppError(500, ErrorCode.INTERNAL_SERVER_ERROR);
+    unknownError.stack = error.stack;
+    unknownError.message = error.message;
+    return unknownError;
   }
 
+  // Error型でない場合
   const unknownError = new AppError(500, ErrorCode.INTERNAL_SERVER_ERROR);
-  unknownError.stack = error.stack;
-  unknownError.message = error.message;
+  unknownError.message = String(error);
   return unknownError;
 }
 
 export function logger(
   level: "WARN" | "ERROR",
   message: string,
-  context: Record<string, any> = {}
+  context: Record<string, unknown> = {}
 ) {
   const logPayload = {
     level,
@@ -60,29 +92,26 @@ export function logger(
 }
 
 function logApiError(
-  error: any,
-  event: any,
+  error: unknown,
+  event: APIGatewayProxyEvent,
   statusCode: number,
   errorCode?: string
 ) {
   const level = statusCode >= 500 ? "ERROR" : "WARN";
   const details = error instanceof AppError ? error.details : {};
 
-  logger(level, error.message || "API Error", {
+  logger(level, error instanceof Error ? error.message : "API Error", {
     path: event.path,
     method: event.httpMethod,
     statusCode,
     errorCode,
-    errorName: error.name,
-    stack: statusCode >= 500 ? error.stack : undefined,
+    errorName: error instanceof Error ? error.name : "UnknownError",
+    stack:
+      statusCode >= 500 && error instanceof Error ? error.stack : undefined,
     requestId: event.requestContext?.requestId,
     ...details,
   });
 }
-
-// =================================================================
-// バリデーションヘルパー
-// =================================================================
 
 export function validateJson<T>(body: string | null, schema: ZodSchema<T>): T {
   if (!body) {
@@ -92,7 +121,7 @@ export function validateJson<T>(body: string | null, schema: ZodSchema<T>): T {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
-  } catch (error) {
+  } catch {
     throw new AppError(400, ErrorCode.INVALID_PARAMETER);
   }
 
@@ -100,7 +129,9 @@ export function validateJson<T>(body: string | null, schema: ZodSchema<T>): T {
 
   if (!result.success) {
     const errorCode = result.error.issues[0].message;
-    const finalErrorCode = Object.values(ErrorCode).includes(errorCode as any)
+    const finalErrorCode = (Object.values(ErrorCode) as string[]).includes(
+      errorCode
+    )
       ? (errorCode as ErrorCode)
       : ErrorCode.VALIDATION_FAILED;
 
@@ -114,14 +145,15 @@ export function validateJson<T>(body: string | null, schema: ZodSchema<T>): T {
   return result.data;
 }
 
-// =================================================================
-// 標準 API Handler
-// =================================================================
+interface ApiHandlerResult {
+  statusCode?: number;
+  body?: unknown;
+}
 
 type LogicFunction = (
   event: APIGatewayProxyEvent,
   context: Context
-) => Promise<any>;
+) => Promise<ApiHandlerResult | Record<string, unknown> | unknown>;
 
 export const apiHandler = (logic: LogicFunction) => {
   return async (
@@ -158,13 +190,13 @@ export const apiHandler = (logic: LogicFunction) => {
     }
 
     try {
-      const result = await logic(event, context);
+      const result = (await logic(event, context)) as ApiHandlerResult | null;
       return {
         statusCode: result?.statusCode || 200,
         headers: { "Content-Type": "application/json", ...corsHeaders },
         body: JSON.stringify(result?.body || result || {}),
       };
-    } catch (rawError: any) {
+    } catch (rawError: unknown) {
       const error = normalizeError(rawError);
       logApiError(error, event, error.statusCode, error.errorCode);
 
@@ -184,29 +216,34 @@ export const apiHandler = (logic: LogicFunction) => {
   };
 };
 
-// =================================================================
-// Streaming API Handler
-// =================================================================
+export interface StreamWriter {
+  write: (chunk: string | Uint8Array) => void;
+  end: () => void;
+}
 
 export interface StreamHelper {
-  init: (statusCode?: number, contentType?: string) => any;
+  init: (statusCode?: number, contentType?: string) => StreamWriter;
 }
 
 type StreamLogicFunction = (
-  event: any,
+  event: APIGatewayProxyEvent,
   streamHelper: StreamHelper,
   context: Context
 ) => Promise<void>;
 
 export const streamApiHandler = (logic: StreamLogicFunction) => {
-  const IS_LOCAL_STAGE = process.env.STAGE! === "local";
+  const IS_LOCAL_STAGE = process.env.STAGE === "local";
 
   if (!IS_LOCAL_STAGE) {
     // AWS Lambda Response Streaming
     return awslambda.streamifyResponse(
-      async (event: any, responseStream: any, context: Context) => {
+      async (
+        event: APIGatewayProxyEvent,
+        responseStream: LambdaWritableStream,
+        context: Context
+      ) => {
         let isHeadersSent = false;
-        let currentStream = responseStream;
+        let currentStream: LambdaWritableStream = responseStream;
 
         const origin = event.headers?.origin || event.headers?.Origin || "";
         const corsHeaders = getCorsHeaders(origin);
@@ -224,11 +261,11 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           init: (
             statusCode = 200,
             contentType = "text/plain; charset=utf-8"
-          ) => {
+          ): StreamWriter => {
             if (isHeadersSent) return currentStream;
 
             // v3.x UI Message Stream Protocol 用のヘッダーを設定
-            const metadata = {
+            const metadata: LambdaStreamMetadata = {
               statusCode,
               headers: {
                 ...corsHeaders,
@@ -258,7 +295,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           }
 
           await logic(event, streamHelper, context);
-        } catch (rawError: any) {
+        } catch (rawError: unknown) {
           const error = normalizeError(rawError);
           logApiError(error, event, error.statusCode, error.errorCode);
 
@@ -280,7 +317,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           }
 
           try {
-            const metadata = {
+            const metadata: LambdaStreamMetadata = {
               statusCode: error.statusCode,
               headers: {
                 "Content-Type": "application/json",
@@ -295,7 +332,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
               JSON.stringify({ errorCode: error.errorCode || "UNKNOWN_ERROR" })
             );
             currentStream.end();
-          } catch (streamError) {
+          } catch {
             responseStream.end();
           }
         }
@@ -305,12 +342,12 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
 
   // Local Polyfill
   return async (
-    event: any,
+    event: APIGatewayProxyEvent,
     context: Context
   ): Promise<APIGatewayProxyResult> => {
     let responseBuffer = "";
     let responseStatusCode = 200;
-    let responseHeaders: any = {};
+    let responseHeaders: Record<string, string | boolean> = {};
     let isInit = false;
 
     const origin = event.headers?.origin || event.headers?.Origin || "";
@@ -332,8 +369,8 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
       };
     }
 
-    const mockStream = {
-      write: (chunk: any) => {
+    const mockStream: StreamWriter = {
+      write: (chunk: string | Uint8Array) => {
         const text =
           chunk instanceof Uint8Array
             ? new TextDecoder().decode(chunk)
@@ -346,7 +383,10 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
     };
 
     const streamHelper: StreamHelper = {
-      init: (statusCode = 200, contentType = "text/plain; charset=utf-8") => {
+      init: (
+        statusCode = 200,
+        contentType = "text/plain; charset=utf-8"
+      ): StreamWriter => {
         if (isInit) return mockStream;
         responseStatusCode = statusCode;
         // v3.x UI Message Stream Protocol 用のヘッダーを設定
@@ -371,7 +411,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
         headers: responseHeaders,
         body: responseBuffer,
       };
-    } catch (rawError: any) {
+    } catch (rawError: unknown) {
       const error = normalizeError(rawError);
       return {
         statusCode: error.statusCode,

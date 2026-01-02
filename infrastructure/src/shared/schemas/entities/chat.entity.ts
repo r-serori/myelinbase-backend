@@ -7,10 +7,6 @@ import {
 } from "../common/base";
 import { FEEDBACK_TYPE } from "../common/constans";
 
-// =================================================================
-// 内部用 Entity（DB保存用）- OpenAPIには公開しない
-// =================================================================
-
 export const SourceDocumentSchema = z.object({
   fileName: z.string(),
   score: z.number().optional(),

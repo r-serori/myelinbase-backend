@@ -2,13 +2,49 @@ import {
   DynamoDBDocumentClient as _DynamoDBDocumentClient,
   GetCommand as _GetCommand,
   PutCommand as _PutCommand,
+  PutCommandInput,
   QueryCommand as _QueryCommand,
+  QueryCommandInput,
   UpdateCommand as _UpdateCommand,
+  UpdateCommandInput,
 } from "@aws-sdk/lib-dynamodb";
+import { APIGatewayProxyEvent, Context } from "aws-lambda";
 import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
 
 // 型定義のみインポート（実体は動的インポートで取得）
 import type { handler as HandlerType } from "./index";
+
+// awslambdaグローバルオブジェクトの型定義（モック用）
+interface HttpResponseStream {
+  _buffer: string;
+  _statusCode: number;
+  write(chunk: Uint8Array | string): void;
+  end(): void;
+}
+
+interface HttpResponseStreamMetadata {
+  statusCode?: number;
+}
+
+// モック用の型定義（実際のawslambda型とは異なるため、Partialを使用）
+type AwslambdaMock = Partial<{
+  streamifyResponse: (
+    handler: (
+      event: APIGatewayProxyEvent,
+      responseStream: HttpResponseStream,
+      context: Context
+    ) => Promise<void>
+  ) => (
+    event: APIGatewayProxyEvent,
+    context: Context
+  ) => Promise<{ statusCode: number; body: string }>;
+  HttpResponseStream: {
+    from: (
+      stream: HttpResponseStream,
+      metadata: HttpResponseStreamMetadata
+    ) => HttpResponseStream;
+  };
+}>;
 
 describe("Chat Function Integration Tests", () => {
   const ORIGINAL_ENV = process.env;
@@ -41,19 +77,19 @@ describe("Chat Function Integration Tests", () => {
     // テスト環境には awslambda グローバルオブジェクトが存在しないため、ここでモックします。
     // また、テストの利便性のために、ストリームへの書き込みをキャプチャして
     // 通常の { statusCode, body } 形式のオブジェクトとして返すようにラップします。
-    (global as any).awslambda = {
+    const awslambdaMock: AwslambdaMock = {
       streamifyResponse: (
         handler: (
-          event: any,
-          responseStream: any,
-          context: any
+          event: APIGatewayProxyEvent,
+          responseStream: HttpResponseStream,
+          context: Context
         ) => Promise<void>
       ) => {
-        return async (event: any, context: any) => {
-          const responseStreamMock = {
+        return async (event: APIGatewayProxyEvent, context: Context) => {
+          const responseStreamMock: HttpResponseStream = {
             _buffer: "",
             _statusCode: 200,
-            write: function (chunk: any) {
+            write: function (chunk: Uint8Array | string) {
               const text =
                 chunk instanceof Uint8Array
                   ? new TextDecoder().decode(chunk)
@@ -74,7 +110,10 @@ describe("Chat Function Integration Tests", () => {
         };
       },
       HttpResponseStream: {
-        from: (stream: any, metadata: any) => {
+        from: (
+          stream: HttpResponseStream,
+          metadata: HttpResponseStreamMetadata
+        ) => {
           if (metadata && metadata.statusCode) {
             stream._statusCode = metadata.statusCode;
           }
@@ -82,6 +121,8 @@ describe("Chat Function Integration Tests", () => {
         },
       },
     };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).awslambda = awslambdaMock;
 
     // 2. 環境変数の設定
     process.env = { ...ORIGINAL_ENV };
@@ -149,6 +190,7 @@ describe("Chat Function Integration Tests", () => {
 
   afterAll(() => {
     process.env = ORIGINAL_ENV;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (global as any).awslambda; // モックのクリーンアップ
   });
 
@@ -158,10 +200,10 @@ describe("Chat Function Integration Tests", () => {
   const createEvent = (
     method: string,
     path: string,
-    body: any = null,
-    pathParams: any = null,
-    queryParams: any = null
-  ) => {
+    body: Record<string, unknown> | null = null,
+    pathParams: Record<string, string> | null = null,
+    queryParams: Record<string, string> | null = null
+  ): APIGatewayProxyEvent => {
     return {
       httpMethod: method,
       path: path,
@@ -175,8 +217,39 @@ describe("Chat Function Integration Tests", () => {
       body: body ? JSON.stringify(body) : null,
       requestContext: {
         requestId: "req-123",
-      },
-    } as any;
+        accountId: "123456789012",
+        apiId: "test-api",
+        stage: "test",
+        resourceId: "test-resource",
+        resourcePath: path,
+        httpMethod: method,
+        identity: {
+          sourceIp: "127.0.0.1",
+          userAgent: "test-agent",
+          accessKey: null,
+          accountId: null,
+          apiKey: null,
+          apiKeyId: null,
+          caller: null,
+          clientCert: null,
+          cognitoAuthenticationProvider: null,
+          cognitoAuthenticationType: null,
+          cognitoIdentityId: null,
+          cognitoIdentityPoolId: null,
+          principalOrgId: null,
+          user: null,
+          userArn: null,
+        },
+        path,
+        protocol: "HTTP/1.1",
+        requestTimeEpoch: Date.now(),
+      } as APIGatewayProxyEvent["requestContext"],
+      isBase64Encoded: false,
+      multiValueHeaders: {},
+      multiValueQueryStringParameters: null,
+      stageVariables: null,
+      resource: path,
+    };
   };
 
   /**
@@ -203,12 +276,28 @@ describe("Chat Function Integration Tests", () => {
    * ハンドラー実行ヘルパー
    * ラムダハンドラーをローカル実行用にキャストして呼び出します
    */
-  const invokeHandler = async (event: any) => {
+  const invokeHandler = async (
+    event: APIGatewayProxyEvent
+  ): Promise<{ statusCode: number; body: string }> => {
     const localHandler = handler as unknown as (
-      event: any,
-      context: any
-    ) => Promise<any>;
-    return localHandler(event, {} as any);
+      event: APIGatewayProxyEvent,
+      context: Context
+    ) => Promise<{ statusCode: number; body: string }>;
+    const context: Context = {
+      callbackWaitsForEmptyEventLoop: false,
+      functionName: "test-function",
+      functionVersion: "1",
+      invokedFunctionArn: "arn:aws:lambda:us-east-1:123456789012:function:test",
+      memoryLimitInMB: "128",
+      awsRequestId: "test-request-id",
+      logGroupName: "/aws/lambda/test",
+      logStreamName: "test-stream",
+      getRemainingTimeInMillis: () => 30000,
+      done: () => {},
+      fail: () => {},
+      succeed: () => {},
+    };
+    return localHandler(event, context);
   };
 
   // ==========================================
@@ -291,13 +380,18 @@ describe("Chat Function Integration Tests", () => {
 
       // メッセージ保存の中身確認
       const msgSaveCall = putCalls.find((call) => {
-        const item = (call.args[0].input as any).Item;
-        return item.sk && item.sk.startsWith("MSG#");
+        const input = call.args[0].input as PutCommandInput;
+        return (
+          input.Item?.sk &&
+          typeof input.Item.sk === "string" &&
+          input.Item.sk.startsWith("MSG#")
+        );
       });
       expect(msgSaveCall).toBeDefined();
-      const savedItem = (msgSaveCall!.args[0].input as any).Item;
-      expect(savedItem.userQuery).toBe("Tell me about specs");
-      expect(savedItem.aiResponse).toBe("Hello, World!");
+      const savedItem = (msgSaveCall!.args[0].input as PutCommandInput).Item;
+      expect(savedItem).toBeDefined();
+      expect(savedItem?.userQuery).toBe("Tell me about specs");
+      expect(savedItem?.aiResponse).toBe("Hello, World!");
     });
 
     it("should use redoHistoryId if provided", async () => {
@@ -322,12 +416,17 @@ describe("Chat Function Integration Tests", () => {
       // DynamoDB保存時に redoHistoryId が使われたか確認
       const putCalls = ddbMock.commandCalls(PutCommand);
       const msgSaveCall = putCalls.find((call) => {
-        const item = (call.args[0].input as any).Item;
-        return item.sk && item.sk.startsWith("MSG#");
+        const input = call.args[0].input as PutCommandInput;
+        return (
+          input.Item?.sk &&
+          typeof input.Item.sk === "string" &&
+          input.Item.sk.startsWith("MSG#")
+        );
       });
-      const savedItem = (msgSaveCall!.args[0].input as any).Item;
-      expect(savedItem.historyId).toBe(redoId);
-      expect(savedItem.aiResponse).toBe("Redo Response");
+      const savedItem = (msgSaveCall!.args[0].input as PutCommandInput).Item;
+      expect(savedItem).toBeDefined();
+      expect(savedItem?.historyId).toBe(redoId);
+      expect(savedItem?.aiResponse).toBe("Redo Response");
     });
 
     it("should save partial history when error occurs during streaming", async () => {
@@ -367,13 +466,18 @@ describe("Chat Function Integration Tests", () => {
         // 部分保存の確認 (Part 1 までが保存されているべき)
         const putCalls = ddbMock.commandCalls(PutCommand);
         const msgSaveCall = putCalls.find((call) => {
-          const item = (call.args[0].input as any).Item;
-          return item.sk && item.sk.startsWith("MSG#");
+          const input = call.args[0].input as PutCommandInput;
+          return (
+            input.Item?.sk &&
+            typeof input.Item.sk === "string" &&
+            input.Item.sk.startsWith("MSG#")
+          );
         });
         // エラー時でも saveHistoryWithNoEvent が呼ばれるはず
         expect(msgSaveCall).toBeDefined();
-        const savedItem = (msgSaveCall!.args[0].input as any).Item;
-        expect(savedItem.aiResponse).toBe("Part 1");
+        const savedItem = (msgSaveCall!.args[0].input as PutCommandInput).Item;
+        expect(savedItem).toBeDefined();
+        expect(savedItem?.aiResponse).toBe("Part 1");
       } finally {
         // console.errorのモックを復元
         consoleErrorSpy.mockRestore();
@@ -418,10 +522,10 @@ describe("Chat Function Integration Tests", () => {
       expect(resBody.item.feedback).toBe("GOOD");
 
       // DynamoDB Update確認
-      const callArgs = ddbMock.call(0).args[0].input as any;
-      expect(callArgs.Key.pk).toBe("SESSION#session-1");
-      expect(callArgs.Key.sk).toBe("MSG#2024-01-01T00:00:00Z");
-      expect(callArgs.ExpressionAttributeValues[":evaluation"]).toBe("GOOD");
+      const callArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      expect(callArgs.Key?.pk).toBe("SESSION#session-1");
+      expect(callArgs.Key?.sk).toBe("MSG#2024-01-01T00:00:00Z");
+      expect(callArgs.ExpressionAttributeValues?.[":evaluation"]).toBe("GOOD");
     });
 
     it("should return 400 if BAD evaluation is missing reasons", async () => {
@@ -466,9 +570,9 @@ describe("Chat Function Integration Tests", () => {
       expect(resBody.sessions).toHaveLength(1);
       expect(resBody.sessions[0].sessionId).toBe("s1");
 
-      const callArgs = ddbMock.call(0).args[0].input as any;
+      const callArgs = ddbMock.call(0).args[0].input as QueryCommandInput;
       expect(callArgs.IndexName).toBe("GSI1");
-      expect(callArgs.ExpressionAttributeValues[":userKey"]).toBe(
+      expect(callArgs.ExpressionAttributeValues?.[":userKey"]).toBe(
         "USER#user-123"
       );
     });
@@ -518,7 +622,7 @@ describe("Chat Function Integration Tests", () => {
       expect(resBody.nextCursor).toBeDefined();
 
       // DynamoDB Query args verification
-      const callArgs = ddbMock.call(0).args[0].input as any;
+      const callArgs = ddbMock.call(0).args[0].input as QueryCommandInput;
       expect(callArgs.Limit).toBe(10);
       expect(callArgs.ExclusiveStartKey).toBeDefined(); // cursor is decoded
     });
@@ -581,7 +685,7 @@ describe("Chat Function Integration Tests", () => {
       expect(result.statusCode).toBe(200);
 
       // Verify Soft Delete (TTL set, deletedAt set, GSI keys removed)
-      const callArgs = ddbMock.call(0).args[0].input as any;
+      const callArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
       expect(callArgs.UpdateExpression).toContain("SET deletedAt = :now");
       expect(callArgs.UpdateExpression).toContain("REMOVE gsi1pk, gsi1sk");
     });

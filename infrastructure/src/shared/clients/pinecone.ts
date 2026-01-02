@@ -105,7 +105,7 @@ export async function searchVectors(
   client: Pinecone,
   queryVector: number[],
   topK: number = 5,
-  filter?: Record<string, any>
+  filter?: Record<string, unknown>
 ): Promise<VectorSearchResult[]> {
   const index = client.index<RecordMetadata>(pineconeIndexName);
 

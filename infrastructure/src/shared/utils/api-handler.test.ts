@@ -1,6 +1,13 @@
+import { APIGatewayProxyEvent, Context } from "aws-lambda";
+
 import { ErrorCode } from "../types/error-code";
 
-import { apiHandler, AppError, streamApiHandler } from "./api-handler";
+import {
+  apiHandler,
+  AppError,
+  streamApiHandler,
+  StreamHelper,
+} from "./api-handler";
 
 // テスト用の環境変数設定
 process.env.ALLOWED_ORIGINS = "http://localhost:3000";
@@ -25,13 +32,26 @@ jest.mock("./response", () => {
 });
 
 describe("API Handler Utils", () => {
-  const mockContext = {} as any;
+  const mockContext: Context = {
+    callbackWaitsForEmptyEventLoop: false,
+    functionName: "test",
+    functionVersion: "1",
+    invokedFunctionArn: "arn:aws:lambda:us-east-1:123456789012:function:test",
+    memoryLimitInMB: "128",
+    awsRequestId: "test-request-id",
+    logGroupName: "/aws/lambda/test",
+    logStreamName: "2021/01/01/[$LATEST]test",
+    getRemainingTimeInMillis: () => 30000,
+    done: () => {},
+    fail: () => {},
+    succeed: () => {},
+  };
 
   // モックイベント作成ヘルパー
   const createEvent = (
     method: string = "GET",
     headers: Record<string, string> = {}
-  ) =>
+  ): APIGatewayProxyEvent =>
     ({
       httpMethod: method,
       path: "/test",
@@ -40,7 +60,15 @@ describe("API Handler Utils", () => {
         ...headers,
       },
       requestContext: { requestId: "req-123" },
-    }) as any;
+      body: null,
+      isBase64Encoded: false,
+      pathParameters: null,
+      queryStringParameters: null,
+      multiValueHeaders: {},
+      multiValueQueryStringParameters: null,
+      stageVariables: null,
+      resource: "",
+    }) as unknown as APIGatewayProxyEvent;
 
   describe("apiHandler (Standard)", () => {
     it("should return 200 with formatted body on success", async () => {
@@ -85,7 +113,7 @@ describe("API Handler Utils", () => {
       const wrappedHandler = apiHandler(logic);
 
       const event = createEvent();
-      event.headers.origin = "http://evil.com"; // 許可されていないオリジン
+      event.headers.origin = "http://evil.com";
 
       const response = await wrappedHandler(event, mockContext);
 
@@ -109,7 +137,10 @@ describe("API Handler Utils", () => {
     // ローカルモードのテスト (process.env.STAGE = "local" 前提)
 
     it("should return buffered response with Vercel AI SDK headers in local mode", async () => {
-      const logic = (event: any, streamHelper: any) => {
+      const logic = (
+        _event: APIGatewayProxyEvent,
+        streamHelper: StreamHelper
+      ) => {
         // デフォルトのcontentType等はinitで設定される
         const stream = streamHelper.init();
         stream.write("Hello");
@@ -121,10 +152,16 @@ describe("API Handler Utils", () => {
 
       // TypeScriptがAWS Lambdaのストリーミング型（3引数）と推論してしまう場合があるため、
       // ローカルPolyfillの型（2引数）に明示的にキャストします。
-      const wrappedHandler = streamApiHandler(logic) as (
-        event: any,
-        context: any
-      ) => Promise<any>;
+      type LocalHandler = (
+        event: APIGatewayProxyEvent,
+        context: Context
+      ) => Promise<{
+        statusCode: number;
+        headers: Record<string, string>;
+        body: string;
+      }>;
+
+      const wrappedHandler = streamApiHandler(logic) as LocalHandler;
       const response = await wrappedHandler(createEvent(), mockContext);
 
       expect(response.statusCode).toBe(200);
@@ -143,10 +180,12 @@ describe("API Handler Utils", () => {
       const logic = () =>
         Promise.reject(new AppError(400, ErrorCode.INVALID_PARAMETER));
 
-      const wrappedHandler = streamApiHandler(logic) as (
-        event: any,
-        context: any
-      ) => Promise<any>;
+      type LocalHandler = (
+        event: APIGatewayProxyEvent,
+        context: Context
+      ) => Promise<{ statusCode: number; body: string }>;
+
+      const wrappedHandler = streamApiHandler(logic) as LocalHandler;
       const response = await wrappedHandler(createEvent(), mockContext);
 
       expect(response.statusCode).toBe(400);
@@ -156,10 +195,13 @@ describe("API Handler Utils", () => {
 
     it("should return 403 for CORS error in streaming", async () => {
       const logic = () => Promise.resolve(undefined);
-      const wrappedHandler = streamApiHandler(logic) as (
-        event: any,
-        context: any
-      ) => Promise<any>;
+
+      type LocalHandler = (
+        event: APIGatewayProxyEvent,
+        context: Context
+      ) => Promise<{ statusCode: number; body: string }>;
+
+      const wrappedHandler = streamApiHandler(logic) as LocalHandler;
 
       const event = createEvent();
       event.headers.origin = "http://evil.com";

@@ -3,10 +3,6 @@ import { z } from "zod";
 import { OwnerSchema } from "../common/base";
 import { DOCUMENT_STATUS } from "../common/constans";
 
-// =================================================================
-// 内部用 Entity（DB保存用）- OpenAPIには公開しない
-// =================================================================
-
 export const DocumentStatusSchema = z.enum(DOCUMENT_STATUS);
 
 export type DocumentStatusEntity = z.infer<typeof DocumentStatusSchema>;

@@ -5,10 +5,6 @@ import { ErrorCode } from "../../types/error-code";
 
 extendZodWithOpenApi(z);
 
-// =================================================================
-// 共通型定義
-// =================================================================
-
 export interface StreamWriter {
   write: (chunk: string) => void;
   end: () => void;
@@ -33,10 +29,6 @@ export const SourceDocumentSchema = z
   .openapi("SourceDocument");
 
 export type SourceDocumentDto = z.infer<typeof SourceDocumentSchema>;
-
-// =================================================================
-// Chat Session & Message Entities
-// =================================================================
 
 export const ChatSessionSchema = z
   .object({
@@ -64,10 +56,6 @@ export const ChatMessageSchema = z
   .openapi("ChatMessage");
 
 export type ChatMessageDto = z.infer<typeof ChatMessageSchema>;
-
-// =================================================================
-// UI Message Parts (リクエスト用)
-// =================================================================
 
 export const TextUIPartSchema = z
   .object({
@@ -116,13 +104,11 @@ export const ChatStreamRequestSchema = z
 
 export type ChatStreamRequestDto = z.infer<typeof ChatStreamRequestSchema>;
 
-// =================================================================
-// UI Message Stream Protocol - レスポンスチャンク型
-// Vercel AI SDK v3.x 準拠
-// https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
-// =================================================================
-
 /**
+ * UI Message Stream Protocol - レスポンスチャンク型
+ * Vercel AI SDK v3.x 準拠
+ * https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
+ *
  * テキストデルタチャンク
  * SDK期待形式: {"type":"text-delta","textDelta":"..."}
  */
@@ -191,14 +177,8 @@ export const DataChunkSchema = z
 
 export type DataChunkDto = z.infer<typeof DataChunkSchema>;
 
-// =================================================================
-// ★ Stream Data Payloads - Orvalで型生成される
-// =================================================================
-
 /**
- * セッション情報ペイロード
- * ストリーミング完了時にフロントエンドへ送信される
- * フロントエンドでキャッシュを直接更新するために使用
+ * Stream Data Payloads - Orvalで型生成される
  */
 export const SessionInfoPayloadSchema = z
   .object({
@@ -289,10 +269,6 @@ export type GetSessionMessagesQueryParamsDto = z.infer<
   typeof GetSessionMessagesQueryParamsSchema
 >;
 
-// =================================================================
-// レスポンス型定義
-// =================================================================
-
 export const SessionSummarySchema = z
   .object({
     sessionId: z.string(),
@@ -368,10 +344,6 @@ export const SubmitFeedbackResponseSchema = z
 export type SubmitFeedbackResponseDto = z.infer<
   typeof SubmitFeedbackResponseSchema
 >;
-
-// =================================================================
-// エラーレスポンス型定義
-// =================================================================
 
 export const ChatStreamErrorResponseSchema = z
   .object({

@@ -28,7 +28,9 @@ export function createDynamoDBClient(): DynamoDBDocumentClient {
 /**
  * ページネーショントークンをエンコード
  */
-export function encodeCursor(lastEvaluatedKey: Record<string, any>): string {
+export function encodeCursor(
+  lastEvaluatedKey: Record<string, unknown>
+): string {
   return Buffer.from(JSON.stringify(lastEvaluatedKey), "utf-8").toString(
     "base64"
   );
@@ -37,7 +39,9 @@ export function encodeCursor(lastEvaluatedKey: Record<string, any>): string {
 /**
  * ページネーショントークンをデコード
  */
-export function decodeCursor(cursor: string): Record<string, any> | undefined {
+export function decodeCursor(
+  cursor: string
+): Record<string, unknown> | undefined {
   try {
     return JSON.parse(Buffer.from(cursor, "base64").toString("utf-8"));
   } catch {

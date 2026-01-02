@@ -1,4 +1,5 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { SdkStream } from "@aws-sdk/types";
 import { mockClient } from "aws-sdk-client-mock";
 import { Readable } from "stream";
 
@@ -14,7 +15,7 @@ import {
 jest.mock("pdf-parse", () => {
   return {
     __esModule: true,
-    default: jest.fn().mockImplementation((buffer) => {
+    default: jest.fn().mockImplementation(() => {
       return {
         text: "Extracted PDF Text",
         numpages: 1,
@@ -28,12 +29,22 @@ jest.mock("pdf-parse", () => {
 
 const s3Mock = mockClient(S3Client);
 
-// ストリーム作成ヘルパー
-const createStream = (text: string) => {
+// ストリーム作成ヘルパー - AWS SDK互換のSdkStreamを返す
+const createStream = (text: string): SdkStream<Readable> => {
   const stream = new Readable();
   stream.push(text);
   stream.push(null);
-  return stream;
+
+  // SdkStream互換のメソッドを追加
+  const sdkStream = stream as SdkStream<Readable>;
+  sdkStream.transformToByteArray = async () =>
+    Promise.resolve(Buffer.from(text));
+  sdkStream.transformToString = async () => Promise.resolve(text);
+  sdkStream.transformToWebStream = () => {
+    throw new Error("Not implemented");
+  };
+
+  return sdkStream;
 };
 
 describe("Text Processing Utils", () => {
@@ -45,7 +56,7 @@ describe("Text Processing Utils", () => {
   describe("extractTextFromS3", () => {
     it("should extract text from plain text file", async () => {
       s3Mock.on(GetObjectCommand).resolves({
-        Body: createStream("Hello World") as any,
+        Body: createStream("Hello World"),
       });
 
       const text = await extractTextFromS3(
@@ -60,7 +71,7 @@ describe("Text Processing Utils", () => {
 
     it("should extract text from markdown file", async () => {
       s3Mock.on(GetObjectCommand).resolves({
-        Body: createStream("# Heading") as any,
+        Body: createStream("# Heading"),
       });
 
       const text = await extractTextFromS3(
@@ -75,7 +86,7 @@ describe("Text Processing Utils", () => {
 
     it("should extract text from PDF file", async () => {
       s3Mock.on(GetObjectCommand).resolves({
-        Body: createStream("Dummy PDF Content") as any,
+        Body: createStream("Dummy PDF Content"),
       });
 
       const text = await extractTextFromS3(
@@ -90,7 +101,7 @@ describe("Text Processing Utils", () => {
 
     it("should throw error for unsupported content type", async () => {
       s3Mock.on(GetObjectCommand).resolves({
-        Body: createStream("content") as any,
+        Body: createStream("content"),
       });
 
       await expect(

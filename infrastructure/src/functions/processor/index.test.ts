@@ -7,6 +7,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   UpdateCommand,
+  UpdateCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 
@@ -45,7 +46,12 @@ import {
   getPineconeApiKey,
   upsertDocumentVectors,
 } from "../../shared/clients/pinecone";
-import { ChunkData } from "../../shared/types/processor";
+import {
+  ChunkData,
+  EmbedAndUpsertResponse,
+  ExtractAndChunkResponse,
+  ProcessorEvent,
+} from "../../shared/types/processor";
 import { extractTextFromS3 } from "../../shared/utils/text-processing";
 
 // --- AWS Client Mocks ---
@@ -78,9 +84,9 @@ describe("Processor Function", () => {
     it("should update status to PROCESSING", async () => {
       ddbMock.on(UpdateCommand).resolves({});
 
-      const event = {
-        action: "updateStatus" as const,
-        status: "PROCESSING" as const,
+      const event: ProcessorEvent = {
+        action: "updateStatus",
+        status: "PROCESSING",
         payload: { documentId: "doc-123" },
       };
 
@@ -89,43 +95,43 @@ describe("Processor Function", () => {
       expect(result).toEqual({ documentId: "doc-123", status: "PROCESSING" });
 
       expect(ddbMock.calls()).toHaveLength(1);
-      const args = ddbMock.call(0).args[0].input as any;
-      expect(args.Key.documentId).toBe("doc-123");
-      expect(args.ExpressionAttributeValues[":status"]).toBe("PROCESSING");
-      expect(args.ExpressionAttributeValues[":active"]).toBe("ACTIVE");
+      const args = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      expect(args.Key?.documentId).toBe("doc-123");
+      expect(args.ExpressionAttributeValues?.[":status"]).toBe("PROCESSING");
+      expect(args.ExpressionAttributeValues?.[":active"]).toBe("ACTIVE");
     });
 
     it("should update status to COMPLETED and remove processingStatus", async () => {
       ddbMock.on(UpdateCommand).resolves({});
 
-      const event = {
-        action: "updateStatus" as const,
-        status: "COMPLETED" as const,
+      const event: ProcessorEvent = {
+        action: "updateStatus",
+        status: "COMPLETED",
         payload: { documentId: "doc-123" },
       };
 
       await handler(event);
 
-      const args = ddbMock.call(0).args[0].input as any;
-      expect(args.ExpressionAttributeValues[":status"]).toBe("COMPLETED");
+      const args = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      expect(args.ExpressionAttributeValues?.[":status"]).toBe("COMPLETED");
       expect(args.UpdateExpression).toContain("REMOVE processingStatus");
     });
 
     it("should include error message when status is FAILED", async () => {
       ddbMock.on(UpdateCommand).resolves({});
 
-      const event = {
-        action: "updateStatus" as const,
-        status: "FAILED" as const,
+      const event: ProcessorEvent = {
+        action: "updateStatus",
+        status: "FAILED",
         payload: { documentId: "doc-123" },
         error: { message: "Something went wrong" },
       };
 
       await handler(event);
 
-      const args = ddbMock.call(0).args[0].input as any;
-      expect(args.ExpressionAttributeValues[":status"]).toBe("FAILED");
-      expect(args.ExpressionAttributeValues[":error"]).toContain(
+      const args = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      expect(args.ExpressionAttributeValues?.[":status"]).toBe("FAILED");
+      expect(args.ExpressionAttributeValues?.[":error"]).toContain(
         "Something went wrong"
       );
     });
@@ -152,8 +158,8 @@ describe("Processor Function", () => {
       const longText = "A".repeat(1000);
       (extractTextFromS3 as jest.Mock).mockResolvedValue(longText);
 
-      const event = {
-        action: "extractAndChunk" as const,
+      const event: ProcessorEvent = {
+        action: "extractAndChunk",
         payload: {
           documentId: "doc-123",
           bucket: "my-bucket",
@@ -161,15 +167,15 @@ describe("Processor Function", () => {
         },
       };
 
-      const result = await handler(event);
+      const result = (await handler(event)) as ExtractAndChunkResponse;
 
       // 結果の検証
       expect(result.documentId).toBe("doc-123");
-      expect((result as any).text).toBe(""); // RawTextは空文字で返す仕様に変更済み
+      expect(result.text).toBe(""); // RawTextは空文字で返す仕様に変更済み
 
       // chunksの検証: ChunkData[] 型になっているか
-      expect((result as any).chunks.length).toBeGreaterThan(0);
-      const firstChunk = (result as any).chunks[0];
+      expect(result.chunks.length).toBeGreaterThan(0);
+      const firstChunk = result.chunks[0];
 
       // Small to Big の構造を持っているか確認
       expect(firstChunk).toHaveProperty("childText");
@@ -193,8 +199,8 @@ describe("Processor Function", () => {
     it("should throw error if document not found in DB", async () => {
       ddbMock.on(GetCommand).resolves({}); // Itemなし
 
-      const event = {
-        action: "extractAndChunk" as const,
+      const event: ProcessorEvent = {
+        action: "extractAndChunk",
         payload: {
           documentId: "doc-missing",
           bucket: "my-bucket",
@@ -238,15 +244,15 @@ describe("Processor Function", () => {
         },
       ];
 
-      const event = {
-        action: "embedAndUpsert" as const,
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
         payload: {
           documentId: "doc-123",
           chunks,
         },
       };
 
-      const result = await handler(event);
+      const result = (await handler(event)) as EmbedAndUpsertResponse;
 
       // 検証
       expect(result).toEqual({ documentId: "doc-123", vectorCount: 2 });
@@ -261,7 +267,11 @@ describe("Processor Function", () => {
 
       // upsertDocumentVectorsの引数検証
       const upsertArgs = (upsertDocumentVectors as jest.Mock).mock.calls[0];
-      const vectors = upsertArgs[1]; // [0] = client, [1] = vectors
+      const vectors = upsertArgs[1] as Array<{
+        id: string;
+        values: number[];
+        metadata: { text: string; parentId: string };
+      }>; // [0] = client, [1] = vectors
       expect(vectors).toHaveLength(2);
 
       // メタデータには "Parent Text" が保存されていることを確認
@@ -278,11 +288,11 @@ describe("Processor Function", () => {
   // ==========================================
   it("should throw error for unknown action", async () => {
     const event = {
-      action: "unknownAction" as any,
+      action: "unknownAction" as ProcessorEvent["action"],
       payload: { documentId: "doc-123" },
     };
 
-    await expect(handler(event)).rejects.toThrow(
+    await expect(handler(event as ProcessorEvent)).rejects.toThrow(
       "Unknown action: unknownAction"
     );
   });

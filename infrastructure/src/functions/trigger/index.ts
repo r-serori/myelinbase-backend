@@ -14,14 +14,10 @@ const lambdaClient = IS_LOCAL
   : new LambdaClient({});
 
 export const handler = async (event: S3Event) => {
-  console.log("S3 Trigger received event:", JSON.stringify(event, null, 2));
-
   await Promise.all(
     event.Records.map(async (record) => {
       const bucket = record.s3.bucket.name;
       const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
-
-      console.log(`Processing S3 object: bucket=${bucket}, key=${key}`);
 
       // uploads/ownerId/documentId の形式からdocumentIdを抽出
       const match = key.match(/^uploads\/([^/]+)\/([^/]+)$/);
@@ -32,8 +28,6 @@ export const handler = async (event: S3Event) => {
         console.warn("Expected format: uploads/{ownerId}/{documentId}");
         return;
       }
-
-      console.log(`Extracted documentId: ${documentId}`);
 
       if (IS_LOCAL) {
         // ローカル環境: 直接Processorを呼び出す（Step Functions不要）
@@ -57,11 +51,8 @@ async function invokeProcessorDirectly(
   const processorFunctionName =
     process.env.PROCESSOR_FUNCTION_NAME || "myelinbase-local-doc-processor";
 
-  console.log(`[LOCAL] Invoking processor directly: ${processorFunctionName}`);
-
   try {
     // Step 1: ステータスをPROCESSINGに更新
-    console.log("[LOCAL] Step 1: Updating status to PROCESSING");
     await lambdaClient.send(
       new InvokeCommand({
         FunctionName: processorFunctionName,
@@ -74,7 +65,6 @@ async function invokeProcessorDirectly(
     );
 
     // Step 2: テキスト抽出とチャンク分割
-    console.log("[LOCAL] Step 2: Extracting and chunking");
     const extractResponse = await lambdaClient.send(
       new InvokeCommand({
         FunctionName: processorFunctionName,
@@ -90,14 +80,12 @@ async function invokeProcessorDirectly(
     const extractResult = JSON.parse(
       new TextDecoder().decode(extractResponse.Payload)
     );
-    console.log("[LOCAL] Extract result:", JSON.stringify(extractResult));
 
     if (extractResult.errorMessage) {
       throw new Error(extractResult.errorMessage);
     }
 
     // Step 3: Embedding生成とPinecone登録
-    console.log("[LOCAL] Step 3: Embedding and upserting to Pinecone");
     await lambdaClient.send(
       new InvokeCommand({
         FunctionName: processorFunctionName,
@@ -110,7 +98,6 @@ async function invokeProcessorDirectly(
     );
 
     // Step 4: ステータスをCOMPLETEDに更新
-    console.log("[LOCAL] Step 4: Updating status to COMPLETED");
     await lambdaClient.send(
       new InvokeCommand({
         FunctionName: processorFunctionName,
@@ -121,8 +108,6 @@ async function invokeProcessorDirectly(
         }),
       })
     );
-
-    console.log(`[LOCAL] Processing completed for documentId: ${documentId}`);
   } catch (error) {
     console.error("[LOCAL] Processing failed:", error);
 
@@ -161,11 +146,6 @@ async function startStepFunctions(
     documentId,
   };
 
-  console.log(
-    "Starting Step Functions execution with input:",
-    JSON.stringify(input)
-  );
-
   await sfnClient.send(
     new StartExecutionCommand({
       stateMachineArn: process.env.STATE_MACHINE_ARN!,
@@ -173,6 +153,4 @@ async function startStepFunctions(
       input: JSON.stringify(input),
     })
   );
-
-  console.log(`Step Functions execution started for documentId: ${documentId}`);
 }

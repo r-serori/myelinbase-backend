@@ -4,6 +4,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { APIGatewayProxyEvent } from "aws-lambda";
 import { randomUUID } from "crypto";
 
 import {
@@ -58,7 +59,7 @@ const DOCUMENT_TTL_SECONDS = 24 * 60 * 60;
 const docClient = createDynamoDBClient();
 const s3Client = createS3Client();
 
-export const handler = apiHandler(async (event) => {
+export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
   const { httpMethod, path, pathParameters } = event;
   const ownerId = extractOwnerId(event);
 
@@ -119,7 +120,7 @@ export const handler = apiHandler(async (event) => {
   throw new AppError(404);
 });
 
-function extractOwnerId(event: any): string {
+function extractOwnerId(event: APIGatewayProxyEvent): string {
   if (IS_LOCAL_STAGE) {
     return "user-001";
   }
@@ -131,10 +132,6 @@ function extractOwnerId(event: any): string {
 
   return ownerId;
 }
-
-// =================================================================
-// ビジネスロジック関数
-// =================================================================
 
 /**
  * ドキュメント一覧取得 GET /documents
@@ -421,10 +418,6 @@ async function uploadRequest(
 
   return { results };
 }
-
-// =================================================================
-// ヘルパー
-// =================================================================
 
 /**
  * ドキュメントを削除リクエストにする (同名ファイルアップロード時の置換用)
