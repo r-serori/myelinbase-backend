@@ -1,140 +1,231 @@
-# **API Response & Error Handling Guide**
+# API Documentation (`doc`)
 
-このドキュメントは、フロントエンドアプリケーションにおけるAPIレスポンスのハンドリング仕様、特にエラーコードのマッピングとストリーミングレスポンスの構造について記述しています。
+## 概要
 
-## **1\. 共通レスポンス形式**
+このディレクトリには、Myelin Base Backend の API ドキュメントが含まれています。OpenAPI 3.0 仕様に基づいて定義されており、フロントエンドの API クライアント生成や API ドキュメントの公開に使用されます。
 
-### **1.1 成功時 (Standard REST API)**
+## ファイル構成
 
-HTTPステータスコード 200 (OK) または 202 (Accepted) が返却されます。  
-レスポンスボディはエンドポイントごとのJSONスキーマに従います。
+```
+doc/
+└── openapi.yaml    # OpenAPI 3.0 仕様書
+```
 
-### **1.2 エラー時 (Standard REST API)**
+## OpenAPI 仕様 (`openapi.yaml`)
 
-HTTPステータスコード 4xx または 5xx が返却されます。  
-レスポンスボディは以下のJSON形式で統一されています。  
-{  
- "errorCode": "INVALID_PARAMETER"  
-}
+### 概要
 
-**Note:** 標準APIのエラーレスポンスには message フィールドが含まれない場合があります。UIへのメッセージ表示は、後述の **ErrorCode マッピング表** に基づいてフロントエンド側で生成することを推奨します。
+- **バージョン**: OpenAPI 3.0.0
+- **タイトル**: Myelin Base RAG API
+- **ベース URL**: `/api`
 
-## **2\. ErrorCode マッピング表**
+### 認証
 
-フロントエンドでのメッセージ表示やハンドリングの参考にしてください。
+```yaml
+securitySchemes:
+  BearerAuth:
+    type: http
+    scheme: bearer
+    bearerFormat: JWT
+```
 
-### **汎用エラー (400/500系)**
+全てのエンドポイント（ヘルスチェックを除く）で Cognito JWT 認証が必要です。
 
-| ErrorCode             | HTTP Status | 内容                    | UIメッセージ例 / 対応                                                           |
-| :-------------------- | :---------- | :---------------------- | :------------------------------------------------------------------------------ |
-| VALIDATION_FAILED     | 400         | 入力バリデーション失敗  | "入力内容を確認してください。"                                                  |
-| INVALID_PARAMETER     | 400         | パラメータ不正          | "不正なリクエストです。"                                                        |
-| MISSING_PARAMETER     | 400         | 必須パラメータ欠落      | "必要な情報が不足しています。"                                                  |
-| PERMISSION_DENIED     | 401/403     | 権限不足 / トークン無効 | (ログイン画面へリダイレクト) "セッションが切れました。再ログインしてください。" |
-| INTERNAL_SERVER_ERROR | 500         | サーバー内部エラー      | "システムエラーが発生しました。しばらくしてから再度お試しください。"            |
-| RESOURCE_NOT_FOUND    | 404         | リソース不在            | "データが見つかりませんでした。"                                                |
-| STATE_CONFLICT        | 409         | 状態不整合 (処理中など) | "現在処理中のため操作できません。"                                              |
+### 主要エンドポイント
 
-### **ドキュメント関連エラー**
+#### Documents API
 
-| ErrorCode                        | HTTP Status | 内容               | UIメッセージ例 / 対応                                          |
-| :------------------------------- | :---------- | :----------------- | :------------------------------------------------------------- |
-| DOCUMENTS_FILE_TOO_LARGE         | 400         | ファイルサイズ超過 | "ファイルサイズが大きすぎます (上限50MB)。"                    |
-| DOCUMENTS_UNSUPPORTED_FILE_TYPE  | 400         | 非対応ファイル形式 | "PDF, Text, Markdown, CSV形式のみアップロード可能です。"       |
-| DOCUMENTS_TAGS_TOO_MANY          | 400         | タグ数超過         | "タグは20個まで設定可能です。"                                 |
-| DOCUMENTS_UPLOAD_FAILED          | 500         | S3アップロード失敗 | "ファイルのアップロードに失敗しました。"                       |
-| DOCUMENTS_NOT_READY_FOR_DOWNLOAD | 400         | 処理未完了         | "ファイルの準備ができていません。処理完了までお待ちください。" |
+| メソッド | パス                           | 説明                 | タグ      |
+| -------- | ------------------------------ | -------------------- | --------- |
+| GET      | `/documents`                   | ドキュメント一覧取得 | Documents |
+| POST     | `/documents/upload`            | アップロードURL発行  | Documents |
+| GET      | `/documents/{id}`              | ドキュメント詳細取得 | Documents |
+| GET      | `/documents/{id}/download-url` | ダウンロードURL取得  | Documents |
+| DELETE   | `/documents/{id}`              | ドキュメント削除     | Documents |
+| PATCH    | `/documents/{id}/tags`         | タグ更新             | Documents |
 
-### **チャット関連エラー**
+#### Chat API
 
-| ErrorCode               | HTTP Status | 内容             | UIメッセージ例 / 対応                                          |
-| :---------------------- | :---------- | :--------------- | :------------------------------------------------------------- |
-| CHAT_QUERY_EMPTY        | 400         | 質問が空         | "質問内容を入力してください。"                                 |
-| CHAT_QUERY_TOO_LONG     | 400         | 質問が長すぎる   | "質問が長すぎます。短くまとめてください。"                     |
-| CHAT_SESSION_NAME_EMPTY | 400         | セッション名が空 | "セッション名を入力してください。"                             |
-| CHAT_BEDROCK_ERROR      | 500         | AIサービスエラー | "AIの応答生成に失敗しました。時間をおいて再試行してください。" |
+| メソッド | パス                           | 説明               | タグ |
+| -------- | ------------------------------ | ------------------ | ---- |
+| POST     | `/chat/sessions`               | セッション作成     | Chat |
+| GET      | `/chat/sessions`               | セッション一覧取得 | Chat |
+| POST     | `/chat/sessions/{id}/messages` | メッセージ送信     | Chat |
+| GET      | `/chat/sessions/{id}/messages` | 履歴取得           | Chat |
+| PATCH    | `/chat/sessions/{id}`          | セッション更新     | Chat |
+| DELETE   | `/chat/sessions/{id}`          | セッション削除     | Chat |
+| POST     | `/chat/messages/{id}/feedback` | フィードバック     | Chat |
 
-## **3\. ストリーミング API (SSE) 仕様**
+#### Health API
 
-エンドポイント: POST /chat/stream
+| メソッド | パス      | 説明           | タグ   |
+| -------- | --------- | -------------- | ------ |
+| GET      | `/health` | ヘルスチェック | Health |
 
-Server-Sent Events (SSE) 形式でレスポンスが返却されます。イベントタイプ (type) に応じて処理を分岐してください。
+### スキーマ定義
 
-### **イベント構造**
+#### ErrorCode
 
-// 型定義イメージ  
-type ChatStreamEvent \=  
- | { type: "citations", citations: SourceDocument\[\] }  
- | { type: "text", text: string }  
- | { type: "done", sessionId: string, historyId: string, aiResponse: string, citations: SourceDocument\[\] }  
- | { type: "error", errorCode: string, message: string };
+```yaml
+ErrorCode:
+  type: string
+  enum:
+    - VALIDATION_FAILED
+    - INVALID_PARAMETER
+    - MISSING_PARAMETER
+    - PERMISSION_DENIED
+    - RESOURCE_NOT_FOUND
+    - INTERNAL_SERVER_ERROR
+    - DOCUMENTS_FILE_TOO_LARGE
+    - DOCUMENTS_UNSUPPORTED_FILE_TYPE
+    - DOCUMENTS_NOT_FOUND
+    # ... その他のエラーコード
+```
 
-### **イベント詳細**
+#### Document Status
 
-#### **1\. citations (引用ソース)**
+```yaml
+DocumentStatus:
+  type: string
+  enum:
+    - PENDING_UPLOAD
+    - PROCESSING
+    - COMPLETED
+    - FAILED
+    - DELETING
+    - DELETED
+```
 
-回答生成に使用されたドキュメント情報が最初に送られます。
+#### Feedback Type
 
-data: {  
- "type": "citations",  
- "citations": \[  
- {  
- "fileName": "report.pdf",  
- "uri": "s3://bucket/key",  
- "text": "引用箇所の抜粋テキスト...",  
- "score": 0.85  
- }  
- \]  
-}
+```yaml
+FeedbackType:
+  type: string
+  enum:
+    - NONE
+    - GOOD
+    - BAD
+```
 
-#### **2\. text (回答テキスト)**
+## ドキュメント生成
 
-AIの回答がトークン単位（チャンク）で送られます。これを結合して表示してください。
+OpenAPI 仕様は Zod スキーマから自動生成されます。
 
-data: {  
- "type": "text",  
- "text": "はい、"  
-}
+```bash
+npm run doc:generate
+```
 
-data: {  
- "type": "text",  
- "text": "その通り"  
-}
+### 生成プロセス
 
-#### **3\. done (完了)**
+```
+infrastructure/src/shared/schemas/*.ts (Zod スキーマ)
+     ↓
+@asteasolutions/zod-to-openapi
+     ↓
+infrastructure/scripts/generate-openapi.ts
+     ↓
+doc/openapi.yaml
+```
 
-回答生成が完了したタイミングで送られます。最終的な回答全文とセッションIDが含まれます。
+## フロントエンドでの使用
 
-data: {  
- "type": "done",  
- "sessionId": "session-123",  
- "historyId": "msg-456",  
- "aiResponse": "はい、その通りです。",  
- "citations": \[...\]  
-}
+### Orval による API クライアント生成
 
-#### **4\. error (ストリーム中のエラー)**
+フロントエンドでは Orval を使用して、OpenAPI 仕様から React Query フックと Zod スキーマを自動生成しています。
 
-ストリーミング中にエラーが発生した場合に送られます。このイベントを受信したらストリームをクローズしてください。
+```typescript
+// orval.config.ts (フロントエンド)
+export default defineConfig({
+  myelin: {
+    input: {
+      target: "../myelinbase-backend/doc/openapi.yaml",
+    },
+    output: {
+      mode: "tags-split",
+      target: "src/lib/api/generated",
+      client: "react-query",
+    },
+  },
+  "myelin-zod": {
+    input: {
+      target: "../myelinbase-backend/doc/openapi.yaml",
+    },
+    output: {
+      client: "zod",
+      target: "src/lib/api/generated/zod",
+    },
+  },
+});
+```
 
-data: {  
- "type": "error",  
- "errorCode": "INTERNAL_SERVER_ERROR",  
- "message": "An unexpected error occurred."  
-}
+### 生成コマンド（フロントエンド）
 
-## **4\. 主なAPIエンドポイント一覧**
+```bash
+# フロントエンドリポジトリで実行
+npx orval
+```
 
-### **Chat**
+### 生成されるファイル
 
-- POST /chat/stream: チャット送信 (SSE)
-- GET /chat/sessions: セッション履歴一覧取得
-- GET /chat/sessions/{id}/messages: メッセージ履歴取得
-- POST /chat/feedback: 回答へのフィードバック送信
+```
+frontend/src/lib/api/generated/
+├── documents/           # Documents API フック
+│   └── documents.ts
+├── chat/               # Chat API フック
+│   └── chat.ts
+├── health/             # Health API フック
+│   └── health.ts
+├── model/              # TypeScript 型定義
+│   ├── documentResponseDto.ts
+│   ├── chatSessionDto.ts
+│   └── ...
+└── zod/                # Zod スキーマ
+    ├── documents.zod.ts
+    └── ...
+```
 
-### **Documents**
+## API ドキュメントの閲覧
 
-- GET /documents: ドキュメント一覧取得
-- POST /documents/upload: アップロード用URL発行
-- PATCH /documents/{id}/tags: タグ更新
-- DELETE /documents/{id}: ドキュメント削除
+### Swagger UI
+
+ローカルで Swagger UI を起動して API ドキュメントを閲覧できます。
+
+```bash
+# Docker で起動
+docker run -p 8080:8080 \
+  -e SWAGGER_JSON=/openapi.yaml \
+  -v $(pwd)/doc/openapi.yaml:/openapi.yaml \
+  swaggerapi/swagger-ui
+
+# ブラウザで開く
+open http://localhost:8080
+```
+
+### Redoc
+
+```bash
+# npx で起動
+npx @redocly/cli preview-docs doc/openapi.yaml
+
+# ブラウザで開く
+open http://localhost:8080
+```
+
+## 更新ワークフロー
+
+1. **スキーマ変更**: `infrastructure/src/shared/schemas/*.ts` を編集
+2. **ドキュメント生成**: `npm run doc:generate`
+3. **確認**: Swagger UI 等で変更を確認
+4. **フロントエンド更新**: フロントエンドで `npx orval` を実行
+
+## バリデーション
+
+OpenAPI 仕様の整合性を検証します。
+
+```bash
+# Spectral でリント
+npx @stoplight/spectral-cli lint doc/openapi.yaml
+
+# Redocly でバリデーション
+npx @redocly/cli lint doc/openapi.yaml
+```

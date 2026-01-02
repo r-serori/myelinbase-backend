@@ -1,77 +1,174 @@
-# **Ingestion Trigger Function (src/functions/trigger)**
+# Ingestion Trigger Function (`src/functions/trigger`)
 
-## **概要**
+## 概要
 
-このLambda関数は、S3イベント通知（s3:ObjectCreated:\*）をトリガーとして起動し、RAGのデータ取り込み（Ingestion）パイプラインであるAWS Step Functionsを実行します。  
-ユーザーがドキュメントをアップロードした直後に、非同期処理を開始させるためのエントリポイントです。
+この Lambda 関数は、S3 へのファイルアップロードをトリガーとして RAG パイプライン（Step Functions）を起動します。ドキュメントのインジェスチョン処理の起点となる関数です。
 
-## **責務 (Responsibilities)**
+## 責務
 
-1. **S3イベントのハンドリング**
-   - S3から送られてくるイベントオブジェクトをパース。
-   - URLエンコードされたオブジェクトキーのデコード（+ をスペースに置換など）。
-2. **メタデータ抽出**
-   - S3キーのパスパターンから documentId を抽出。
-   - パス形式: uploads/{ownerId}/{documentId}/{fileName}
-3. **Step Functionsの起動**
-   - 抽出した情報を入力として、定義されたステートマシン（STATE_MACHINE_ARN）を実行 (StartExecution)。
-   - 実行名（Name）に ingest-{documentId}-{timestamp} を付与し、追跡可能にする。
+| 責務                 | 説明                                         |
+| -------------------- | -------------------------------------------- |
+| **S3 イベント処理**  | `s3:ObjectCreated:*` イベントを受信          |
+| **パイプライン起動** | Step Functions ステートマシンの実行を開始    |
+| **メタデータ更新**   | ドキュメントステータスを `PROCESSING` に更新 |
 
-## **環境変数 (Environment Variables)**
+## トリガー条件
 
-| 変数名            | 必須    | デフォルト値 | 説明                                      |
-| :---------------- | :------ | :----------- | :---------------------------------------- |
-| STATE_MACHINE_ARN | **Yes** | \-           | 実行するStep FunctionsステートマシンのARN |
+| 項目           | 値                   |
+| -------------- | -------------------- |
+| イベントタイプ | `s3:ObjectCreated:*` |
+| バケット       | Documents バケット   |
+| プレフィックス | `uploads/`           |
 
-## **入出力インターフェース**
+```yaml
+# template.yaml での設定
+Events:
+  S3Upload:
+    Type: S3
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      Events: s3:ObjectCreated:*
+      Filter:
+        S3Key:
+          Rules:
+            - Name: prefix
+              Value: uploads/
+```
 
-### **トリガーイベント (S3 Event Notification)**
+## 環境変数
 
-S3バケットにファイルが作成された際にAWSから自動的にinvokeされます。
+| 変数名                    | 必須 | 説明                                    |
+| ------------------------- | :--: | --------------------------------------- |
+| `STATE_MACHINE_ARN`       |  ✅  | Step Functions ステートマシン ARN       |
+| `PROCESSOR_FUNCTION_NAME` |  ✅  | Doc Processor Lambda 関数名             |
+| `TABLE_NAME`              |  ✅  | Documents DynamoDB テーブル名           |
+| `LOCALSTACK_ENDPOINT`     |  -   | LocalStack エンドポイント（ローカル用） |
 
-**入力ペイロード例 (S3 Event):**
+## 処理フロー
 
-{  
- "Records": \[  
- {  
- "s3": {  
- "bucket": {  
- "name": "myelinbase-dev-docs-123456789012"  
- },  
- "object": {  
- "key": "uploads/user-001/doc-uuid-v4/sample.pdf",  
- "size": 1024,  
- "eTag": "..."  
- }  
- }  
- }  
- \]  
+```
+S3 へファイルアップロード
+     ↓
+S3 イベント通知が Lambda をトリガー
+     ↓
+S3 キーからドキュメント ID を抽出
+  (uploads/{ownerId}/{documentId}/{fileName})
+     ↓
+DynamoDB のステータスを PROCESSING に更新
+     ↓
+Step Functions を起動（documentId, s3Key を渡す）
+     ↓
+Lambda 完了（Step Functions が非同期で処理を継続）
+```
+
+## S3 キー形式
+
+```
+uploads/{ownerId}/{documentId}/{fileName}
+```
+
+**例**:
+
+```
+uploads/user-001/550e8400-e29b-41d4-a716-446655440000/report.pdf
+```
+
+## Step Functions 入力
+
+```json
+{
+  "documentId": "550e8400-e29b-41d4-a716-446655440000",
+  "s3Key": "uploads/user-001/550e8400.../report.pdf",
+  "bucket": "myelinbase-docs"
 }
+```
 
-### **Step Functions への入力 (StartExecution Input)**
+## RAG パイプライン（Step Functions）
 
-このLambdaがStep Functionsに渡すJSONペイロードです。
+```
+┌─────────────────────────────────────────────┐
+│           RAG Ingestion Pipeline            │
+├─────────────────────────────────────────────┤
+│  1. UpdateStatus (PROCESSING)               │
+│     ↓                                       │
+│  2. ExtractText                             │
+│     - S3 からファイル取得                    │
+│     - PDF/テキストからテキスト抽出           │
+│     ↓                                       │
+│  3. ChunkText                               │
+│     - テキストをチャンク分割                 │
+│     - オーバーラップウィンドウ方式           │
+│     ↓                                       │
+│  4. GenerateEmbeddings                      │
+│     - Bedrock Titan でエンベディング生成     │
+│     ↓                                       │
+│  5. UpsertVectors                           │
+│     - Pinecone にベクトル保存               │
+│     ↓                                       │
+│  6. UpdateStatus (COMPLETED)                │
+├─────────────────────────────────────────────┤
+│  Error Handler → UpdateStatus (FAILED)      │
+└─────────────────────────────────────────────┘
+```
 
-{  
- "bucket": "myelinbase-dev-docs-123456789012",  
- "key": "uploads/user-001/doc-uuid-v4/sample.pdf",  
- "documentId": "doc-uuid-v4"  
+## エラーハンドリング
+
+### イベント解析エラー
+
+S3 イベントの解析に失敗した場合、エラーログを出力して処理を終了します。
+
+```typescript
+if (!s3Key || !bucket) {
+  logger("ERROR", "Invalid S3 event", { event });
+  return;
 }
+```
 
-## **内部処理フロー**
+### Step Functions 起動エラー
 
-1. **イベントループ**: S3イベントは複数のレコードを含む可能性があるため、Records 配列をループ処理（Promise.all）。
-2. **キーのデコード**: S3キーはURLエンコードされているため、decodeURIComponent で元の文字列に戻す。特にスペースが \+ になっている点に注意。
-3. **ID抽出**: 正規表現 uploads/\[^/\]+/(\[^/\]+)/ を使用して、パスから documentId を抽出。抽出できない場合は警告ログを出してスキップ（DLQ等には送らない設計）。
-4. **実行開始**: SFNClient.send(new StartExecutionCommand(...)) を呼び出し。
-5. **エラーハンドリング**: 実行開始に失敗した場合はエラーログを出力し、例外をスローしてLambdaを失敗させる（S3イベントの再試行メカニズムを利用するため）。
+ステートマシンの起動に失敗した場合、エラーをスローして Lambda の再試行メカニズムに委ねます。
 
-## **エラーハンドリングとリトライ**
+## ローカル開発
 
-- **Lambdaレベル**: この関数がエラー終了した場合、S3イベント通知の仕様により自動的にリトライが行われます（非同期呼び出しのデフォルト設定）。
-- **ログ**: 失敗した場合は CloudWatch Logs に Failed to start execution for {documentId} というエラーが出力されます。
+LocalStack では S3 イベント通知の設定が必要です。デプロイスクリプトが自動的に設定します。
 
-## **関連リソース**
+```bash
+# deploy-local.sh での設定
+awslocal s3api put-bucket-notification-configuration \
+  --bucket myelinbase-local-docs \
+  --notification-configuration '{
+    "LambdaFunctionConfigurations": [
+      {
+        "Id": "TriggerOnUpload",
+        "LambdaFunctionArn": "arn:aws:lambda:...",
+        "Events": ["s3:ObjectCreated:*"],
+        "Filter": {
+          "Key": {
+            "FilterRules": [
+              { "Name": "prefix", "Value": "uploads/" }
+            ]
+          }
+        }
+      }
+    ]
+  }'
+```
 
-- **Trigger元**: DocumentsBucket (S3)
-- **起動先**: RagIngestionStateMachine (Step Functions)
+## テスト
+
+```bash
+# SAM CLI でローカルテスト
+npm run test:trigger
+
+# S3 イベントを模擬（events/s3-put.json）
+{
+  "Records": [
+    {
+      "s3": {
+        "bucket": { "name": "myelinbase-local-docs" },
+        "object": { "key": "uploads/user-001/doc-001/test.pdf" }
+      }
+    }
+  ]
+}
+```

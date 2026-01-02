@@ -1,138 +1,207 @@
-# **Doc Processor Function (src/functions/processor)**
+# Stream Processor Function (`src/functions/processor`)
 
-## **概要**
+## 概要
 
-このLambda関数は、RAG ETLパイプライン（Step Functions）内の各タスクを実行するワーカー関数です。  
-「単一のLambda関数で複数の処理を切り替えて実行する」パターン（Lambda Monolith for Workers）を採用しており、action パラメータによって挙動が変わります。
+この Lambda 関数は、DynamoDB Streams のイベントを処理し、削除されたドキュメントのクリーンアップを実行します。論理削除（`DELETING` ステータス）されたドキュメントの実データを非同期で物理削除します。
 
-## **責務 (Responsibilities)**
+## 責務
 
-この関数は以下の3つの主要なアクションを提供します：
+| 責務                        | 説明                                               |
+| --------------------------- | -------------------------------------------------- |
+| **DynamoDB Streams 処理**   | Documents テーブルの変更イベントを監視             |
+| **S3 クリーンアップ**       | 削除対象ドキュメントのファイルを S3 から削除       |
+| **Pinecone クリーンアップ** | 削除対象ドキュメントのベクトルを Pinecone から削除 |
+| **DynamoDB クリーンアップ** | レコードの物理削除                                 |
 
-1. **ステータス更新 (updateStatus)**
-   - DynamoDB上のドキュメントステータスを更新します（例: PROCESSING, COMPLETED, FAILED）。
-   - エラー発生時にはエラーメッセージを記録します。
-   - 完了時には processingStatus を削除し、Sparse Indexを最適化します。
-2. **テキスト抽出 & チャンク分割 (extractAndChunk)**
-   - S3からファイル（PDF, テキスト等）をダウンロードします。
-   - ファイルタイプに応じたテキスト抽出を行います（PDFの場合は pdf-parse を使用）。
-   - 抽出したテキストを、検索に適したサイズ（例: 1000文字）に分割（チャンク化）します。
-3. **Embedding & ベクトル保存 (embedAndUpsert)**
-   - 分割されたテキストチャンクを、Bedrock (Titan Embeddings) を使用してベクトル化します。
-   - 生成されたベクトルとメタデータを、Pineconeに保存（Upsert）します。
+## トリガー
 
-## **環境変数 (Environment Variables)**
+DynamoDB Streams（Documents テーブル）の `MODIFY` イベント
 
-| 変数名               | 必須    | デフォルト値     | 説明                                               |
-| :------------------- | :------ | :--------------- | :------------------------------------------------- |
-| TABLE_NAME           | **Yes** | \-               | ドキュメントメタデータを保存するDynamoDBテーブル名 |
-| BUCKET_NAME          | **Yes** | \-               | 実ファイルを保存するS3バケット名                   |
-| PINECONE_INDEX_NAME  | No      | documents        | ベクトルデータを保存するPineconeインデックス名     |
-| PINECONE_SECRET_NAME | No      | pinecone-api-key | Secrets Managerのシークレット名                    |
-| AWS_REGION           | No      | us-east-1        | AWSリージョン                                      |
+```yaml
+# template.yaml での設定
+Events:
+  DocumentStream:
+    Type: DynamoDB
+    Properties:
+      Stream: !GetAtt DocumentTable.StreamArn
+      StartingPosition: LATEST
+      BatchSize: 10
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName":["MODIFY"]}'
+```
 
-## **入出力インターフェース**
+## 環境変数
 
-このLambdaは、Step Functionsから渡される **ProcessorEvent** オブジェクトを入力として受け取ります。
+| 変数名                         | 必須 | 説明                            |
+| ------------------------------ | :--: | ------------------------------- |
+| `TABLE_NAME`                   |  ✅  | Documents DynamoDB テーブル名   |
+| `BUCKET_NAME`                  |  ✅  | Documents S3 バケット名         |
+| `PINECONE_API_KEY_SECRET_NAME` |  ✅  | Secrets Manager シークレット名  |
+| `PINECONE_INDEX_NAME`          |  ✅  | Pinecone インデックス名         |
+| `S3_ENDPOINT`                  |  -   | S3 エンドポイント（ローカル用） |
 
-### **共通入力構造**
+## 処理フロー
 
-interface ProcessorEvent {  
- action: "updateStatus" | "extractAndChunk" | "embedAndUpsert";  
- status?: string; // updateStatus用  
- error?: { message: string }; // updateStatus (エラー時)用  
- payload: { // 前のステートからの出力  
- documentId: string;  
- bucket?: string;  
- key?: string;  
- chunks?: string\[\];  
- // ...その他  
- };  
+```
+Documents テーブルで MODIFY イベント発生
+     ↓
+DynamoDB Streams が Lambda をトリガー
+     ↓
+NewImage のステータスが DELETING かチェック
+     ↓ (DELETING の場合のみ処理)
+S3 からファイルを削除
+     ↓
+Pinecone からベクトルを削除
+  (documentId をプレフィックスとして持つ全ベクトル)
+     ↓
+DynamoDB からレコードを物理削除
+     ↓
+完了
+```
+
+## 削除フロー全体像
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     削除リクエスト                           │
+│  DELETE /documents/{id}                                     │
+│     ↓                                                       │
+│  Documents Function: ステータスを DELETING に更新            │
+│     ↓                                                       │
+│  DynamoDB: MODIFY イベント発生                               │
+│     ↓                                                       │
+│  DynamoDB Streams: イベントを Stream Processor に配信        │
+│     ↓                                                       │
+│  Stream Processor Function:                                 │
+│    1. S3 ファイル削除                                       │
+│    2. Pinecone ベクトル削除                                 │
+│    3. DynamoDB レコード物理削除                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## DynamoDB Streams イベント形式
+
+```json
+{
+  "Records": [
+    {
+      "eventName": "MODIFY",
+      "dynamodb": {
+        "Keys": {
+          "documentId": { "S": "doc-001" }
+        },
+        "NewImage": {
+          "documentId": { "S": "doc-001" },
+          "ownerId": { "S": "user-001" },
+          "status": { "S": "DELETING" },
+          "s3Key": { "S": "uploads/user-001/doc-001/report.pdf" }
+        },
+        "OldImage": {
+          "documentId": { "S": "doc-001" },
+          "status": { "S": "COMPLETED" }
+        }
+      }
+    }
+  ]
 }
+```
 
-### **アクション別の仕様**
+## Pinecone ベクトル削除
 
-#### **1\. updateStatus**
+ドキュメントのチャンクは以下の ID 形式で Pinecone に保存されています。
 
-処理の開始・終了・失敗時に、DB上の状態を更新します。
+```
+{documentId}-chunk-{index}
+```
 
-**入力例:**
+削除時は `documentId` をプレフィックスとして全ベクトルを削除します。
 
-{  
- "action": "updateStatus",  
- "status": "PROCESSING",  
- "payload": { "documentId": "doc-1" }  
+```typescript
+await pineconeIndex.deleteMany({
+  filter: {
+    documentId: { $eq: documentId },
+  },
+});
+```
+
+## エラーハンドリング
+
+### 部分的な削除失敗
+
+S3 や Pinecone の削除が部分的に失敗した場合でも、処理を継続します。失敗した削除はログに記録されます。
+
+```typescript
+try {
+  await s3Client.send(new DeleteObjectCommand({ ... }));
+} catch (error) {
+  logger('WARN', 'Failed to delete S3 object', { s3Key, error });
+  // 処理は継続
 }
+```
 
-**出力例:**
+### DynamoDB 削除失敗
 
-{  
- "documentId": "doc-1",  
- "status": "PROCESSING"  
+DynamoDB からの物理削除に失敗した場合、エラーをスローして DynamoDB Streams のリトライメカニズムに委ねます。
+
+## 設計思想
+
+### なぜ即座に物理削除しないのか？
+
+1. **HTTP セマンティクス**: DELETE リクエストに対して即座に 200/204 を返すことが期待される
+2. **スケーラビリティ**: S3 や Pinecone の削除は時間がかかる可能性がある
+3. **信頼性**: 非同期処理により、一時的な障害に対してリトライが可能
+
+### なぜ論理削除を経由するのか？
+
+1. **監査証跡**: 削除リクエストの記録を残せる
+2. **リカバリ**: 誤削除からの復旧が可能（実装次第）
+3. **整合性**: 外部サービス（Pinecone）との整合性を保ちやすい
+
+## ローカル開発
+
+LocalStack では DynamoDB Streams がサポートされていますが、完全な動作確認は AWS 環境で実施することを推奨します。
+
+```bash
+# DynamoDB Streams の有効化確認
+awslocal dynamodb describe-table \
+  --table-name myelinbase-local-documents \
+  --query 'Table.StreamSpecification'
+```
+
+## テスト
+
+```bash
+# ユニットテスト
+cd infrastructure
+npm run test -- src/functions/processor/
+
+# 手動テスト（DynamoDB ステータス更新）
+awslocal dynamodb update-item \
+  --table-name myelinbase-local-documents \
+  --key '{"documentId": {"S": "doc-001"}}' \
+  --update-expression "SET #s = :status" \
+  --expression-attribute-names '{"#s": "status"}' \
+  --expression-attribute-values '{":status": {"S": "DELETING"}}'
+```
+
+## 監視
+
+### CloudWatch メトリクス
+
+- `IteratorAge`: Streams の遅延を監視
+- `Errors`: 処理エラー数
+- `Duration`: 処理時間
+
+### ログ
+
+```json
+{
+  "level": "INFO",
+  "message": "Document cleanup completed",
+  "documentId": "doc-001",
+  "s3Deleted": true,
+  "pineconeDeleted": true,
+  "dynamoDeleted": true
 }
-
-#### **2\. extractAndChunk**
-
-S3からファイルを読み込み、テキスト処理を行います。
-
-**入力例:**
-
-{  
- "action": "extractAndChunk",  
- "payload": {  
- "documentId": "doc-1",  
- "bucket": "my-bucket",  
- "key": "uploads/user-1/doc-1/file.pdf"  
- }  
-}
-
-出力例:  
-次段の embedAndUpsert に渡すため、テキストとチャンクを含んだ大きなペイロードを返します。  
-{  
- "documentId": "doc-1",  
- "bucket": "my-bucket",  
- "key": "...",  
- "fileName": "file.pdf",  
- "contentType": "application/pdf",  
- "text": "抽出された全文...",  
- "chunks": \["チャンク1...", "チャンク2..."\]  
-}
-
-#### **3\. embedAndUpsert**
-
-テキストをベクトル化し、DBに登録します。
-
-**入力例:**
-
-{  
- "action": "embedAndUpsert",  
- "payload": {  
- "documentId": "doc-1",  
- "chunks": \["チャンク1...", "チャンク2..."\]  
- }  
-}
-
-**出力例:**
-
-{  
- "documentId": "doc-1",  
- "vectorCount": 15  
-}
-
-## **内部処理フロー**
-
-1. **イベント解析**: event.action を見て、実行すべきハンドラ関数 (handleUpdateStatus 等) に振り分けます。
-2. **検証**: 各アクションに必要なパラメータ (documentId 等) が存在するかチェックします。
-3. **実行**:
-   - **DynamoDB操作**: lib-dynamodb の UpdateCommand / GetCommand を使用。
-   - **S3操作**: client-s3 の GetObjectCommand を使用し、ストリームをバッファに変換して処理。
-   - **Bedrock**: invokeModel で amazon.titan-embed-text-v1 を呼び出し。
-   - **Pinecone**: 公式SDKを使用してUpsert。APIキーはSecrets Managerから取得（キャッシュあり）。
-
-## **エラーハンドリング**
-
-- **Lambdaレベル**: エラーが発生した場合、そのまま例外をスローします。
-- **Step Functionsレベル**:
-  - extractAndChunk や embedAndUpsert でエラーが発生した場合、Catch ブロックにより HandleFailure ステートに遷移します。
-  - HandleFailure では、このLambdaを action: "updateStatus", status: "FAILED" で呼び出し、DBにエラー情報を記録します。
-  - Bedrockのスロットリング等に対しては、Step Functions側で Retry が設定されています。
+```

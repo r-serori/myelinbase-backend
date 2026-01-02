@@ -1,43 +1,39 @@
-# **Documents Function (src/functions/documents)**
+# Documents Function (`src/functions/documents`)
 
-## **概要**
+## 概要
 
-このLambda関数は、ドキュメント（PDF, テキスト等）の管理機能を提供するREST APIのバックエンドです。  
-ドキュメントのメタデータ管理（DynamoDB）と、実ファイル操作のための署名付きURL発行（S3）を担当します。
+この Lambda 関数は、ドキュメント（PDF, テキスト等）の管理機能を提供する REST API のバックエンドです。ドキュメントのメタデータ管理（DynamoDB）と、実ファイル操作のための署名付き URL 発行（S3）を担当します。
 
-## **責務 (Responsibilities)**
+## 責務
 
-1. **ドキュメント管理 (CRUD)**
-   - ユーザーごとのドキュメント一覧取得。
-   - ドキュメント詳細情報の取得。
-   - ドキュメントの削除（論理削除フラグの更新）。
-   - タグ情報の更新。
-2. **ファイルアップロード支援**
-   - クライアントがS3に直接ファイルをアップロードするための「署名付きURL (Presigned URL)」の発行。
-   - アップロード予定のメタデータをDynamoDBに先行保存（ステータス: PENDING_UPLOAD）。
-3. **セキュリティ**
-   - Cognitoによる認証（Authorization ヘッダーの検証）。
-   - ユーザーごとのデータ分離（ownerId によるアクセス制御）。
-   - ファイル名、サイズ、拡張子のバリデーション。
+| 責務                  | 説明                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| **ドキュメント CRUD** | ユーザーごとのドキュメント一覧取得、詳細取得、削除（論理削除）、タグ更新              |
+| **アップロード支援**  | クライアントが S3 に直接アップロードするための署名付き URL 発行、メタデータの先行保存 |
+| **ダウンロード支援**  | セキュアなダウンロード用署名付き URL の発行                                           |
+| **セキュリティ**      | Cognito 認証、ユーザーごとのデータ分離、入力バリデーション                            |
 
-## **環境変数 (Environment Variables)**
+## 環境変数
 
-| 変数名               | 必須    | デフォルト値 | 説明                                               |
-| :------------------- | :------ | :----------- | :------------------------------------------------- |
-| TABLE_NAME           | **Yes** | \-           | ドキュメントメタデータを保存するDynamoDBテーブル名 |
-| BUCKET_NAME          | **Yes** | \-           | 実ファイルを保存するS3バケット名                   |
-| PRESIGNED_URL_EXPIRY | No      | 900          | 署名付きURLの有効期限（秒）。デフォルト15分。      |
-| STAGE                | No      | local        | 環境（local, dev, prod）                           |
+| 変数名                 | 必須 | デフォルト | 説明                                  |
+| ---------------------- | :--: | ---------- | ------------------------------------- |
+| `TABLE_NAME`           |  ✅  | -          | DynamoDB テーブル名                   |
+| `BUCKET_NAME`          |  ✅  | -          | S3 バケット名                         |
+| `PRESIGNED_URL_EXPIRY` |  -   | `900`      | 署名付き URL の有効期限（秒）         |
+| `STAGE`                |  -   | `local`    | 環境（local/dev/prod）                |
+| `ALLOWED_ORIGINS`      |  -   | -          | CORS 許可オリジン                     |
+| `DYNAMODB_ENDPOINT`    |  -   | -          | DynamoDB エンドポイント（ローカル用） |
+| `S3_ENDPOINT`          |  -   | -          | S3 エンドポイント（ローカル用）       |
 
-## **入出力インターフェース**
+## API エンドポイント
 
-### **1\. アップロードリクエスト (POST /documents/upload)**
+### 1. アップロード URL 発行
 
-S3へのアップロード用URLを発行します。クライアントはこのURLに対してファイルをPUTします。
+`POST /documents/upload`
 
-**リクエスト:**
+S3 への直接アップロード用 URL を発行します。
 
-- Content-Type: application/json
+**リクエスト**
 
 ```json
 {
@@ -52,7 +48,17 @@ S3へのアップロード用URLを発行します。クライアントはこの
 }
 ```
 
-**レスポンス (202 Accepted):**
+**バリデーション**
+
+| 項目             | 制限               |
+| ---------------- | ------------------ |
+| ファイルサイズ   | 最大 50MB          |
+| ファイル名長     | 最大 255 文字      |
+| 対応ファイル形式 | PDF, TXT, MD, DOCX |
+| タグ数           | 最大 10 個         |
+| タグ長           | 最大 50 文字       |
+
+**レスポンス (202 Accepted)**
 
 ```json
 {
@@ -61,149 +67,264 @@ S3へのアップロード用URLを発行します。クライアントはこの
       "status": "success",
       "fileName": "sample.pdf",
       "data": {
-        "documentId": "uuid-v4",
-        "uploadUrl": "[https://s3.amazonaws.com/](https://s3.amazonaws.com/)...", // このURLにPUTする
+        "documentId": "550e8400-e29b-41d4-a716-446655440000",
+        "uploadUrl": "https://s3.amazonaws.com/bucket/uploads/...",
         "expiresIn": 900,
-        "s3Key": "uploads/user-id/uuid/sample.pdf"
+        "s3Key": "uploads/user-001/550e8400.../sample.pdf"
       }
     }
   ]
 }
 ```
 
-### **2\. ドキュメント一覧取得 (GET /documents)**
+**エラーレスポンス**
 
-認証ユーザーが所有するドキュメントの一覧を返します。
+| エラーコード                              | HTTP | 説明                 |
+| ----------------------------------------- | ---- | -------------------- |
+| `DOCUMENTS_FILE_TOO_LARGE`                | 400  | ファイルサイズ超過   |
+| `DOCUMENTS_UNSUPPORTED_FILE_TYPE`         | 400  | 非対応ファイル形式   |
+| `DOCUMENTS_INVALID_FILENAME_LENGTH_LIMIT` | 400  | ファイル名が長すぎる |
+| `DOCUMENTS_TAG_LENGTH_LIMIT`              | 400  | タグが長すぎる       |
+| `DOCUMENTS_TAGS_TOO_MANY`                 | 400  | タグ数超過           |
 
-**レスポンス (200 OK):**
+### 2. ドキュメント一覧取得
+
+`GET /documents`
+
+認証ユーザーが所有するドキュメントの一覧を返します。削除済み（`DELETED` ステータス）のドキュメントは除外されます。
+
+**レスポンス (200 OK)**
 
 ```json
 {
   "documents": [
     {
-      "documentId": "doc-1",
+      "documentId": "550e8400-e29b-41d4-a716-446655440000",
       "fileName": "sample.pdf",
-      "status": "COMPLETED", // PENDING\_UPLOAD, PROCESSING, COMPLETED, FAILED
+      "status": "COMPLETED",
       "fileSize": 102400,
+      "contentType": "application/pdf",
       "tags": ["重要"],
-      "createdAt": "2024-01-01T00:00:00Z",
-      "updatedAt": "2024-01-01T00:05:00Z"
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:05:00.000Z"
     }
   ]
 }
 ```
 
-### **3\. ドキュメント詳細取得 (GET /documents/{id})**
+**ドキュメントステータス**
 
-指定されたIDのドキュメント詳細を返します。他人のドキュメントにはアクセスできません。
+| ステータス       | 説明                                       |
+| ---------------- | ------------------------------------------ |
+| `PENDING_UPLOAD` | アップロード待ち（メタデータのみ登録済み） |
+| `PROCESSING`     | RAG パイプライン処理中                     |
+| `COMPLETED`      | 処理完了（チャットで使用可能）             |
+| `FAILED`         | 処理失敗                                   |
+| `DELETING`       | 削除処理中                                 |
 
-**レスポンス (200 OK):**
+### 3. ドキュメント詳細取得
+
+`GET /documents/{documentId}`
+
+指定された ID のドキュメント詳細を返します。他ユーザーのドキュメントにはアクセスできません。
+
+**レスポンス (200 OK)**
 
 ```json
 {
   "document": {
-    "documentId": "doc-1",
-    // ... (一覧取得時と同じフィールド)
-    "s3Path": "s3://bucket/uploads/..."
+    "documentId": "550e8400-e29b-41d4-a716-446655440000",
+    "fileName": "sample.pdf",
+    "status": "COMPLETED",
+    "fileSize": 102400,
+    "contentType": "application/pdf",
+    "tags": ["重要"],
+    "s3Key": "uploads/user-001/550e8400.../sample.pdf",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:05:00.000Z"
   }
 }
 ```
 
-### **4. ダウンロードURL取得 (GET /documents/{id}/download-url)**
+**エラーレスポンス**
 
-指定されたIDのドキュメントをダウンロードするための署名付きURLを取得します。
-URLの有効期限は1時間です。
+| エラーコード          | HTTP | 説明                                                  |
+| --------------------- | ---- | ----------------------------------------------------- |
+| `DOCUMENTS_NOT_FOUND` | 404  | ドキュメントが存在しない                              |
+| `PERMISSION_DENIED`   | 404  | 他ユーザーのドキュメント（セキュリティ上 404 を返す） |
 
-**レスポンス (200 OK):**
+### 4. ダウンロード URL 取得
+
+`GET /documents/{documentId}/download-url`
+
+指定されたドキュメントをダウンロードするための署名付き URL を取得します。
+
+**前提条件**
+
+- ドキュメントのステータスが `COMPLETED` であること
+- リクエストユーザーがドキュメントの所有者であること
+
+**レスポンス (200 OK)**
 
 ```json
 {
-  "downloadUrl": "https://s3.amazonaws.com/..."
+  "downloadUrl": "https://s3.amazonaws.com/bucket/uploads/...?X-Amz-Signature=..."
 }
 ```
 
-### **5\. ドキュメント削除 (DELETE /documents/{id})**
+URL の有効期限は **1 時間** です。
 
-ドキュメントを削除します。実際には物理削除ではなく、ステータスを DELETING に更新し、非同期プロセス（DynamoDB Streams）によってクリーンアップされます。
+**エラーレスポンス**
 
-**レスポンス (202 Accepted):**
+| エラーコード                       | HTTP | 説明                        |
+| ---------------------------------- | ---- | --------------------------- |
+| `DOCUMENTS_NOT_FOUND`              | 404  | ドキュメントが存在しない    |
+| `DOCUMENTS_NOT_READY_FOR_DOWNLOAD` | 400  | ステータスが COMPLETED 以外 |
+
+### 5. ドキュメント削除
+
+`DELETE /documents/{documentId}`
+
+ドキュメントを削除します。即座に物理削除は行わず、ステータスを `DELETING` に更新します。実際のクリーンアップ（S3 ファイル削除、Pinecone ベクトル削除）は DynamoDB Streams を通じて非同期で実行されます。
+
+**レスポンス (202 Accepted)**
 
 ```json
 {
   "document": {
-    "documentId": "doc-1",
+    "documentId": "550e8400-e29b-41d4-a716-446655440000",
     "status": "DELETING"
   }
 }
 ```
 
-### **6\. タグ更新 (PATCH /documents/{id}/tags)**
+**削除フロー**
 
-ドキュメントのタグを更新（上書き）します。
+```
+DELETE リクエスト
+     ↓
+ステータスを DELETING に更新
+     ↓
+DynamoDB Streams がイベント発火
+     ↓
+Stream Processor Lambda が起動
+     ↓
+S3 ファイル削除 + Pinecone ベクトル削除
+     ↓
+DynamoDB レコード物理削除
+```
 
-**リクエスト:**
+### 6. タグ更新
+
+`PATCH /documents/{documentId}/tags`
+
+ドキュメントのタグを更新します。
+
+**リクエスト**
 
 ```json
 {
-  "tags": ["新しいタグ", "更新済み"]
+  "tags": ["更新済み", "レビュー完了"]
 }
 ```
 
-**レスポンス (200 OK):**
+**レスポンス (200 OK)**
 
 ```json
 {
   "document": {
-    // ... 更新後のドキュメント情報
-    "tags": ["新しいタグ", "更新済み"]
+    "documentId": "550e8400-e29b-41d4-a716-446655440000",
+    "tags": ["更新済み", "レビュー完了"],
+    "updatedAt": "2024-01-02T10:30:00.000Z"
   }
 }
 ```
 
-### **7. ドキュメント一括削除 (POST /documents/batch-delete)**
+## 認証・認可
 
-指定された複数のドキュメントを一括で削除（論理削除）します。
+### AWS 環境
 
-**リクエスト:**
+Cognito User Pool による JWT 認証を使用します。API Gateway の Authorizer が JWT を検証し、`event.requestContext.authorizer.claims.sub` から所有者 ID（`ownerId`）を取得します。
 
-- Content-Type: application/json
+### ローカル環境
 
-```json
-{
-  "documentIds": ["doc-1", "doc-2"]
+認証をバイパスし、固定の所有者 ID `user-001` を使用します。
+
+```typescript
+function extractOwnerId(event: APIGatewayProxyEvent): string {
+  if (IS_LOCAL_STAGE) {
+    return "user-001";
+  }
+  const claims = event.requestContext?.authorizer?.claims;
+  const ownerId = claims?.sub;
+  if (!ownerId) throw new AppError(401, ErrorCode.PERMISSION_DENIED);
+  return ownerId;
 }
 ```
 
-**レスポンス (200 OK):**
+## DynamoDB スキーマ
 
-```json
-{
-  "results": [
-    {
-      "documentId": "doc-1",
-      "status": "success"
-    },
-    {
-      "documentId": "doc-2",
-      "status": "error",
-      "errorCode": "INTERNAL_SERVER_ERROR" // エラー時のみ
-    }
-  ]
-}
+### Documents Table
+
+| 属性              | 型             | 説明                   |
+| ----------------- | -------------- | ---------------------- |
+| `documentId` (PK) | String         | UUID v4                |
+| `ownerId`         | String         | Cognito User ID        |
+| `fileName`        | String         | オリジナルファイル名   |
+| `fileSize`        | Number         | ファイルサイズ (bytes) |
+| `contentType`     | String         | MIME タイプ            |
+| `status`          | String         | ステータス             |
+| `s3Key`           | String         | S3 オブジェクトキー    |
+| `tags`            | List\<String\> | タグ配列               |
+| `createdAt`       | String         | ISO 8601               |
+| `updatedAt`       | String         | ISO 8601               |
+
+### GSI: OwnerIndex
+
+ユーザーごとのドキュメント一覧取得に使用。
+
+- **パーティションキー**: `ownerId`
+- **ソートキー**: `createdAt` (降順で最新順に取得)
+
+## セキュリティ考慮事項
+
+### アクセス制御
+
+- すべてのエンドポイントで `ownerId` によるアクセス制御を実施
+- 他ユーザーのドキュメントへのアクセスは `404 Not Found` を返す（情報漏洩防止）
+
+### 入力バリデーション
+
+- Zod スキーマによる厳密なバリデーション
+- ファイルサイズ、ファイル名長、タグ数の制限
+
+### 署名付き URL
+
+- アップロード URL は 15 分で期限切れ
+- ダウンロード URL は 1 時間で期限切れ
+- S3 バケットへの直接アクセスは許可しない
+
+## テスト
+
+```bash
+# ユニットテスト実行
+cd infrastructure
+npm run test
+
+# 特定のテストファイル実行
+npm run test -- src/functions/documents/index.test.ts
+
+# カバレッジレポート
+npm run test:coverage
 ```
 
-## **内部処理フロー (Upload Request)**
+### テストケース
 
-1. **バリデーション**: ファイル名、サイズ、拡張子（PDF, TXT, MD, CSVのみ許可）をチェック。
-2. **重複チェック**: 同名ファイルが存在する場合、古いものを削除フラグ付きでマーク。
-3. **ID生成**: uuid を生成し、S3キー (uploads/{userId}/{docId}/{fileName}) を決定。
-4. **DB保存**: ステータス PENDING_UPLOAD でDynamoDBにメタデータを保存。
-5. **署名**: AWS SDKを用いてS3 PutObject 用の署名付きURLを生成。
-6. **返却**: クライアントにURLとメタデータを返却。
-
-## **エラーハンドリング**
-
-- **400 Bad Request**: パラメータ不足、不正なファイル形式、サイズ超過など。
-- **401 Unauthorized**: 認証トークンが無効。
-- **404 Not Found**: 指定されたIDのドキュメントが存在しない、またはアクセス権がない。
-- **500 Internal Server Error**: DynamoDB/S3への接続エラーなど。
+- `GET /documents` - 一覧取得
+- `POST /documents/upload` - アップロード URL 発行
+- `GET /documents/{id}` - 詳細取得
+- `GET /documents/{id}/download-url` - ダウンロード URL 取得
+- `DELETE /documents/{id}` - 削除
+- `PATCH /documents/{id}/tags` - タグ更新
+- 認可エラー（他ユーザーのドキュメント）
+- バリデーションエラー
