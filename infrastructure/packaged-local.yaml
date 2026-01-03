@@ -1,0 +1,401 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "Myelin Base AI Platform - Local Development Template (No Cognito)\n"
+Parameters:
+  ProjectName:
+    Type: String
+    Default: myelinbase
+  FrontendUrl:
+    Type: String
+    Default: http://localhost:3001
+  UseBedrock:
+    Type: String
+    Default: 'false'
+  PineconeApiKeySecretName:
+    Type: String
+    Default: pinecone-api-key
+  PineconeIndexName:
+    Type: String
+    Default: myelinbase-documents
+  DynamoDBEndpoint:
+    Type: String
+    Default: http://host.docker.internal:8000
+  S3Endpoint:
+    Type: String
+    Default: http://host.docker.internal:4566
+  LocalstackEndpoint:
+    Type: String
+    Default: http://host.docker.internal:4566
+  ChatModelId:
+    Type: String
+    Default: anthropic.claude-3-haiku-20240307-v1:0
+  EmbeddingModelId:
+    Type: String
+    Default: amazon.titan-embed-text-v1
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 512
+    Architectures:
+    - arm64
+    Environment:
+      Variables:
+        STAGE: local
+        POWERTOOLS_SERVICE_NAME:
+          Ref: ProjectName
+        LOG_LEVEL: DEBUG
+        DYNAMODB_ENDPOINT:
+          Ref: DynamoDBEndpoint
+        S3_ENDPOINT:
+          Ref: S3Endpoint
+        LOCALSTACK_ENDPOINT:
+          Ref: LocalstackEndpoint
+        ALLOWED_ORIGINS:
+          Ref: FrontendUrl
+        CHAT_MODEL_ID:
+          Ref: ChatModelId
+        EMBEDDING_MODEL_ID:
+          Ref: EmbeddingModelId
+        PINECONE_API_KEY_SECRET_NAME:
+          Ref: PineconeApiKeySecretName
+        PINECONE_INDEX_NAME:
+          Ref: PineconeIndexName
+        USE_BEDROCK:
+          Ref: UseBedrock
+Resources:
+  LocalApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name:
+        Fn::Sub: ${ProjectName}-local-api
+      StageName: local
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin:
+          Fn::Sub: "'${FrontendUrl}'"
+        AllowCredentials: "'true'"
+  ChatAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-local-agent
+      CodeUri: s3://lambda-deploy-bucket/d6d4f5daac47fbdbbe17c3eee9b6edd2
+      Handler: index.handler
+      Description: Streaming Chat Agent (Local)
+      Timeout: 300
+      MemorySize: 1024
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowCredentials: true
+          AllowHeaders:
+          - '*'
+          AllowMethods:
+          - POST
+          AllowOrigins:
+          - Ref: FrontendUrl
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Fn::Sub: ${ProjectName}-local-chat-history
+          DOCUMENT_TABLE_NAME:
+            Fn::Sub: ${ProjectName}-local-documents
+          USER_POOL_ID: local-user-pool
+          CLIENT_ID: local-client-id
+          MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+          NODE_OPTIONS: ' --enable-source-maps'
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:*
+          Resource: '*'
+        - Effect: Allow
+          Action:
+          - bedrock:InvokeModel
+          - bedrock:InvokeModelWithResponseStream
+          - secretsmanager:GetSecretValue
+          Resource: '*'
+      Events:
+        Chat:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat
+            Method: POST
+        ChatStream:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat/stream
+            Method: POST
+        ChatFeedback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat/feedback
+            Method: POST
+        GetSessions:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat/sessions
+            Method: GET
+        GetSession:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: GET
+        UpdateSession:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: PATCH
+        DeleteSession:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/functions/chat/index.ts
+        External:
+        - '@aws-sdk/*'
+        Format: cjs
+        Minify: true
+        OutExtension:
+        - .js=.cjs
+        Sourcemap: true
+        Target: es2022
+      SamResourceId: ChatAgentFunction
+  DocProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-local-doc-processor
+      CodeUri: s3://lambda-deploy-bucket/54f1e8035c6a778167059676dd51ad6b
+      Handler: index.handler
+      Timeout: 120
+      MemorySize: 1024
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Fn::Sub: ${ProjectName}-local-documents
+          BUCKET_NAME:
+            Fn::Sub: ${ProjectName}-local-docs
+          NODE_OPTIONS: ' --enable-source-maps'
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:*
+          - s3:*
+          - bedrock:InvokeModel
+          - secretsmanager:GetSecretValue
+          Resource: '*'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/functions/processor/index.ts
+        External:
+        - '@aws-sdk/*'
+        Format: cjs
+        Minify: true
+        OutExtension:
+        - .js=.cjs
+        Sourcemap: true
+        Target: es2022
+      SamResourceId: DocProcessorFunction
+  IngestionTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-local-trigger
+      CodeUri: s3://lambda-deploy-bucket/259c886e16b50192c79f7734a9d6d8cf
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: arn:aws:states:us-east-1:000000000000:stateMachine:local-rag-pipeline
+          PROCESSOR_FUNCTION_NAME:
+            Fn::Sub: ${ProjectName}-local-doc-processor
+          LOCALSTACK_ENDPOINT:
+            Ref: LocalstackEndpoint
+          NODE_OPTIONS: ' --enable-source-maps'
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - states:StartExecution
+          - lambda:InvokeFunction
+          Resource: '*'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/functions/trigger/index.ts
+        External:
+        - '@aws-sdk/*'
+        Format: cjs
+        Minify: true
+        OutExtension:
+        - .js=.cjs
+        Sourcemap: true
+        Target: es2022
+      SamResourceId: IngestionTriggerFunction
+  DocumentCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-local-cleanup
+      CodeUri: s3://lambda-deploy-bucket/adcfe2511fa5c03ba8d532610652d065
+      Handler: index.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          BUCKET_NAME:
+            Fn::Sub: ${ProjectName}-local-docs
+          PINECONE_INDEX_NAME:
+            Ref: PineconeIndexName
+          NODE_OPTIONS: ' --enable-source-maps'
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:DeleteObject
+          - secretsmanager:GetSecretValue
+          Resource: '*'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/functions/cleanup/index.ts
+        External:
+        - '@aws-sdk/*'
+        Format: cjs
+        Minify: true
+        OutExtension:
+        - .js=.cjs
+        Sourcemap: true
+        Target: es2022
+      SamResourceId: DocumentCleanupFunction
+  DocumentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-local-documents
+      CodeUri: s3://lambda-deploy-bucket/3781d953167773ab102d3ac15fb04dc8
+      Handler: index.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Fn::Sub: ${ProjectName}-local-documents
+          BUCKET_NAME:
+            Fn::Sub: ${ProjectName}-local-docs
+          PRESIGNED_URL_EXPIRY: '900'
+          NODE_OPTIONS: ' --enable-source-maps'
+      Policies:
+      - Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - dynamodb:*
+          - s3:*
+          Resource: '*'
+      Events:
+        GetDocuments:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents
+            Method: GET
+        UploadRequest:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents/upload
+            Method: POST
+        GetDocument:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents/{id}
+            Method: GET
+        GetDownloadUrl:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents/{id}/download-url
+            Method: GET
+        DeleteDocument:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents/{id}
+            Method: DELETE
+        BatchDeleteDocuments:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents/batch-delete
+            Method: POST
+        UpdateTags:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: LocalApiGateway
+            Path: /documents/{id}/tags
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+        - src/functions/documents/index.ts
+        External:
+        - '@aws-sdk/*'
+        Format: cjs
+        Minify: true
+        OutExtension:
+        - .js=.cjs
+        Sourcemap: true
+        Target: es2022
+      SamResourceId: DocumentsFunction
+Outputs:
+  ChatAgentEndpoint:
+    Description: Streaming Function URL for Chat Agent
+    Value:
+      Fn::GetAtt:
+      - ChatAgentFunctionUrl
+      - FunctionUrl
+  ApiEndpoint:
+    Description: REST API Endpoint
+    Value:
+      Fn::Sub: https://${LocalApiGateway}.execute-api.${AWS::Region}.amazonaws.com/local

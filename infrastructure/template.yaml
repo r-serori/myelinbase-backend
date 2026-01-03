@@ -1,0 +1,657 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Myelin Base AI Platform - Backend (Dev/Prod)
+
+# ============================================
+# Parameters
+# ============================================
+Parameters:
+  ProjectName:
+    Type: String
+    Default: myelinbase
+
+  Stage:
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+    Default: dev
+    Description: Deployment stage (dev or prod)
+
+  FrontendUrl:
+    Type: String
+    Description: Allowed Origin for CORS (e.g. https://app.myelinbase.com)
+
+  # --- Custom Domain Parameters (Prod Only) ---
+  DomainName:
+    Type: String
+    Description: Custom domain name for API (e.g. api.myelinbase.com)
+    Default: ""
+  CertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for the custom domain (us-east-1)
+    Default: ""
+  HostedZoneId:
+    Type: String
+    Description: Route53 Hosted Zone ID for creating alias record
+    Default: ""
+
+  # --- Application Parameters ---
+  UseBedrock:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  PineconeApiKeySecretName:
+    Type: String
+    Default: pinecone-api-key
+    Description: SecretsManager secret name for Pinecone API Key
+
+  PineconeIndexName:
+    Type: String
+    Default: myelinbase-documents
+
+  ChatModelId:
+    Type: String
+    Default: "anthropic.claude-3-haiku-20240307-v1:0"
+
+  EmbeddingModelId:
+    Type: String
+    Default: "amazon.titan-embed-text-v1"
+
+# ============================================
+# Conditions
+# ============================================
+Conditions:
+  IsProd: !Equals [!Ref Stage, "prod"]
+  # DomainNameが指定されている場合のみカスタムドメインを作成
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
+
+# ============================================
+# Globals
+# ============================================
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 512
+    Architectures: [arm64]
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        POWERTOOLS_SERVICE_NAME: !Ref ProjectName
+        LOG_LEVEL: INFO
+        ALLOWED_ORIGINS: !Ref FrontendUrl
+        CHAT_MODEL_ID: !Ref ChatModelId
+        EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
+        PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
+        PINECONE_INDEX_NAME: !Ref PineconeIndexName
+        USE_BEDROCK: !Ref UseBedrock
+
+# ============================================
+# Resources
+# ============================================
+Resources:
+  # ---------------------------------------------------
+  # Cognito User Pool & Client
+  # ---------------------------------------------------
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${ProjectName}-${Stage}-user-pool
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      Schema:
+        - AttributeDataType: String
+          Name: email
+          Required: true
+          Mutable: true
+      # ユーザーの自己登録を許可するかどうか（必要に応じてAdminOnlyに変更）
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${ProjectName}-${Stage}-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false # SPA/Frontendからの利用を想定してFalse
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+      PreventUserExistenceErrors: ENABLED
+      # 必要であればCallbackURLs等を設定
+      # CallbackURLs:
+      #   - !Ref FrontendUrl
+
+  # ---------------------------------------------------
+  # API Gateway
+  # ---------------------------------------------------
+  ServerlessApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub ${ProjectName}-${Stage}-api
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: !Sub "'${FrontendUrl}'"
+        AllowCredentials: "'true'"
+
+      # --- Authentication Configuration ---
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+            IdentitySource: method.request.header.Authorization
+
+      # Custom Domain Configuration (Prod Only)
+      Domain: !If
+        - IsProd
+        - DomainName: !Ref DomainName
+          CertificateArn: !Ref CertificateArn
+          EndpointConfiguration: REGIONAL
+          SecurityPolicy: TLS_1_2
+          Route53:
+            HostedZoneId: !Ref HostedZoneId
+        - !Ref "AWS::NoValue"
+
+  # ---------------------------------------------------
+  # 2. Database (DynamoDB) - DocumentTable
+  # ---------------------------------------------------
+  DocumentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${ProjectName}-${Stage}-documents
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: documentId
+          AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
+        - AttributeName: fileName
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: documentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: OwnerIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: FileNameIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: fileName
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: OLD_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ---------------------------------------------------
+  # Chat Agent API
+  # ---------------------------------------------------
+  ChatAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Stage}-agent
+      CodeUri: .
+      Handler: index.handler
+      Description: Streaming Chat Agent
+      Timeout: 300
+      MemorySize: 1024
+      # Function URLは認証なし（またはIAM）で公開されるため注意。
+      # 厳密に保護する場合はAPI Gateway経由のみにするか、Function URLにもIAM認証をかける。
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowCredentials: true
+          AllowHeaders: ["*"]
+          AllowMethods: [POST]
+          AllowOrigins:
+            - !Ref FrontendUrl
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub ${ProjectName}-${Stage}-chat-history
+          # Cognitoリソースへの参照を設定
+          USER_POOL_ID: !Ref CognitoUserPool
+          CLIENT_ID: !Ref CognitoUserPoolClient
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+      Events:
+        Chat:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat
+            Method: POST
+            # DefaultAuthorizerにより自動的にCognito認証が適用されます
+        ChatStream:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/stream
+            Method: POST
+        ChatFeedback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/feedback
+            Method: POST
+        GetSessions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions
+            Method: GET
+        GetSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: GET
+        UpdateSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: PATCH
+        DeleteSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: DELETE
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/chat/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Doc Processor
+  # ---------------------------------------------------
+  DocProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Stage}-doc-processor
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 120
+      MemorySize: 1024
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+          TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+                - s3:*
+                - bedrock:InvokeModel
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/processor/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Ingestion Trigger
+  # ---------------------------------------------------
+  IngestionTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Stage}-trigger
+      CodeUri: .
+      Handler: index.handler
+      Environment:
+        Variables:
+          # Step Functions ARN等は環境に合わせて調整、またはImportValue推奨
+          STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-${Stage}-pipeline"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: "*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/trigger/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Documents API
+  # ---------------------------------------------------
+  DocumentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Stage}-documents
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+          TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
+          PRESIGNED_URL_EXPIRY: "900"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+                - s3:*
+              Resource: "*"
+      Events:
+        GetDocuments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents
+            Method: GET
+            # DefaultAuthorizerにより自動的にCognito認証が適用されます
+        UploadRequest:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/upload
+            Method: POST
+        GetDocument:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}
+            Method: GET
+        GetDownloadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}/download-url
+            Method: GET
+        DeleteDocument:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}
+            Method: DELETE
+        BatchDeleteDocuments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/batch-delete
+            Method: POST
+        UpdateTags:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}/tags
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/documents/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Cleanup Worker (DynamoDB Stream)
+  # ---------------------------------------------------
+  DocumentCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-${Stage}-cleanup
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt DocumentTable.StreamArn
+            BatchSize: 10
+            StartingPosition: TRIM_HORIZON
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+                - secretsmanager:GetSecretValue
+              Resource: "*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/cleanup/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # 3. Storage (S3)
+  # ---------------------------------------------------
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [PUT, POST, GET, DELETE, HEAD]
+            AllowedOrigins: [!Ref FrontendUrl]
+            MaxAge: 3000
+            ExposedHeaders: ["ETag"]
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+            Function: !GetAtt IngestionTriggerFunction.Arn
+
+  DocumentsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnforceSSLOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt DocumentsBucket.Arn
+              - !Sub ${DocumentsBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  # ---------------------------------------------------
+  # 5. RAG ETL Pipeline (Step Functions)
+  # ---------------------------------------------------
+  RagIngestionStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub ${ProjectName}-${Stage}-pipeline
+      Definition:
+        Comment: "Robust RAG Ingestion: Extract -> Chunk -> Embed -> Index"
+        StartAt: UpdateStatusProcessing
+        States:
+          UpdateStatusProcessing:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "updateStatus"
+              status: "PROCESSING"
+              payload.$: "$"
+            Next: ExtractAndChunk
+            Retry: [{ ErrorEquals: ["States.ALL"], MaxAttempts: 3 }]
+
+          ExtractAndChunk:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "extractAndChunk"
+              payload.$: "$"
+            Next: EmbedAndUpsert
+            Catch: [{ ErrorEquals: ["States.ALL"], Next: HandleFailure }]
+
+          EmbedAndUpsert:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "embedAndUpsert"
+              payload.$: "$"
+            Next: UpdateStatusCompleted
+            Retry:
+              - ErrorEquals: ["ThrottlingException"]
+                IntervalSeconds: 5
+                BackoffRate: 2.0
+                MaxAttempts: 5
+            Catch: [{ ErrorEquals: ["States.ALL"], Next: HandleFailure }]
+
+          UpdateStatusCompleted:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "updateStatus"
+              status: "COMPLETED"
+              payload.$: "$"
+            End: True
+
+          HandleFailure:
+            Type: Task
+            Resource: !GetAtt DocProcessorFunction.Arn
+            Parameters:
+              action: "updateStatus"
+              status: "FAILED"
+              payload.$: "$"
+              error.$: "$.Error"
+            End: True
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DocProcessorFunction
+
+  # S3 Permission
+  S3TriggerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestionTriggerFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt DocumentsBucket.Arn
+
+# ============================================
+# Outputs
+# ============================================
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway Endpoint URL"
+    Value:
+      !If [
+        IsProd,
+        !Sub "https://${DomainName}",
+        !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}",
+      ]
+
+  ChatAgentEndpoint:
+    Description: "Streaming Function URL for Chat Agent (Note: Function URL has NO Auth by default)"
+    Value: !GetAtt ChatAgentFunctionUrl.FunctionUrl
+
+  CognitoUserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref CognitoUserPool
+
+  CognitoUserPoolClientId:
+    Description: "Cognito User Pool Client ID"
+    Value: !Ref CognitoUserPoolClient
+
+  DocumentsBucketName:
+    Description: "S3 Bucket Name"
+    Value: !Ref DocumentsBucket

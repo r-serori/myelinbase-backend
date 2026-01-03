@@ -1,0 +1,6 @@
+{
+  "name": "documents-function",
+  "version": "1.0.0",
+  "description": "Documents API Lambda Function",
+  "main": "index.ts"
+}

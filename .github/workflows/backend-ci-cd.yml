@@ -1,0 +1,112 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ===================================================
+  # 1. Test & Validation (CI)
+  #    - Check Linting
+  #    - Run Unit Tests
+  # ===================================================
+  test:
+    name: Test and Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Lintチェック (package.jsonに lint コマンドがない場合はスキップ、あるいは validate:lint を使用)
+      # ここでは sam validate --lint はAWS認証が必要な場合があるため、シンプルな jest test を優先
+      - name: Run Unit Tests
+        run: npm test
+
+  # ===================================================
+  # 2. Deploy to Development (CD)
+  #    - Triggered on push to 'develop' branch
+  # ===================================================
+  deploy-dev:
+    name: Deploy to Dev
+    needs: test
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Setup AWS SAM
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy to Dev Environment
+        run: npm run deploy:dev
+
+  # ===================================================
+  # 3. Deploy to Production (CD)
+  #    - Triggered on push to 'main' branch
+  # ===================================================
+  deploy-prod:
+    name: Deploy to Prod
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Setup AWS SAM
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy to Production Environment
+        run: npm run deploy:prod

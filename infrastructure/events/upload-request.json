@@ -1,0 +1,21 @@
+{
+  "httpMethod": "POST",
+  "path": "/documents/upload",
+  "headers": {
+    "Authorization": "Bearer mock-jwt-token",
+    "Content-Type": "application/json"
+  },
+  "queryStringParameters": null,
+  "pathParameters": null,
+  "body": "{\"files\":[{\"fileName\":\"test-document.pdf\",\"contentType\":\"application/pdf\",\"fileSize\":1024000}],\"tags\":[\"テスト\",\"サンプル\"]}",
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "user-001",
+        "email": "test@example.com",
+        "email_verified": "true"
+      }
+    }
+  },
+  "isBase64Encoded": false
+}
