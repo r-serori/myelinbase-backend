@@ -1,6 +1,5 @@
 // src/functions/processor/index.ts
 import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { logger } from "@myelinbase-backend/shared/utils/api-handler";
 
 import { generateEmbeddings } from "../../shared/clients/bedrock";
 import {
@@ -18,6 +17,7 @@ import {
   ProcessorEvent,
   UpdateStatusResponse,
 } from "../../shared/types/processor";
+import { logger } from "../../shared/utils/api-handler";
 import { createDynamoDBClient } from "../../shared/utils/dynamodb";
 import { createS3Client } from "../../shared/utils/s3";
 import {

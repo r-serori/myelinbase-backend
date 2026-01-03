@@ -102,7 +102,7 @@ import {
   apiHandler,
   AppError,
   ErrorCode,
-} from "@myelinbase-backend/shared/utils/api-handler.js";
+} from "../../shared/utils/api-handler.js";
 
 export const handler = apiHandler(async (event) => {
   // 正常系ロジックのみ記述
@@ -123,7 +123,7 @@ export const handler = apiHandler(async (event) => {
 ### ストリーミングハンドラー
 
 ```typescript
-import { streamApiHandler } from "@myelinbase-backend/shared/utils/api-handler.js";
+import { streamApiHandler } from "../../shared/utils/api-handler.js";
 
 export const handler = streamApiHandler(async (event, responseStream) => {
   // ストリーミングレスポンスを送信
@@ -144,13 +144,13 @@ AWS Bedrock への接続を管理。
 
 ```typescript
 // エンベディング生成
-import { generateEmbeddings } from '@myelinbase-backend/shared/clients/bedrock.js';
+import { generateEmbeddings } from '../../shared/clients/bedrock.js';
 
 const embeddings = await generateEmbeddings(textChunks);
 // バッチ処理に対応、Titan Embeddings を使用
 
 // ストリーミング推論
-import { invokeClaudeStream } from '@myelinbase-backend/shared/clients/bedrock.js';
+import { invokeClaudeStream } from '../../shared/clients/bedrock.js';
 
 const stream = await invokeClaudeStream({
   messages: [...],
@@ -167,7 +167,7 @@ import {
   getPineconeClient,
   upsertVectors,
   queryVectors,
-} from "@myelinbase-backend/shared/clients/pinecone.js";
+} from "../../shared/clients/pinecone.js";
 
 // ベクトルのアップサート
 await upsertVectors(indexName, vectors);
@@ -186,10 +186,7 @@ const results = await queryVectors(indexName, queryVector, topK);
 ### DynamoDB (`dynamodb.ts`)
 
 ```typescript
-import {
-  docClient,
-  TABLE_NAME,
-} from "@myelinbase-backend/shared/utils/dynamodb.js";
+import { docClient, TABLE_NAME } from "../../shared/utils/dynamodb.js";
 
 // 環境に応じたエンドポイント設定
 // - ローカル: http://localhost:8000
@@ -199,7 +196,7 @@ import {
 import {
   encodeNextToken,
   decodeNextToken,
-} from "@myelinbase-backend/shared/utils/dynamodb.js";
+} from "../../shared/utils/dynamodb.js";
 ```
 
 ### S3 (`s3.ts`)
@@ -208,7 +205,7 @@ import {
 import {
   getPresignedUploadUrl,
   getPresignedDownloadUrl,
-} from "@myelinbase-backend/shared/utils/s3.js";
+} from "../../shared/utils/s3.js";
 
 // アップロード用署名付きURL
 const uploadUrl = await getPresignedUploadUrl({
@@ -236,7 +233,7 @@ const downloadUrl = await getPresignedDownloadUrl({
 import {
   extractTextFromPdf,
   chunkText,
-} from "@myelinbase-backend/shared/utils/text-processing.js";
+} from "../../shared/utils/text-processing.js";
 
 // PDF からテキスト抽出
 const text = await extractTextFromPdf(pdfBuffer);
@@ -258,10 +255,7 @@ const chunks = chunkText(text, {
 RAG パイプラインのユーティリティ関数群。
 
 ```typescript
-import {
-  processDocument,
-  retrieveContext,
-} from "@myelinbase-backend/shared/utils/rag.js";
+import { processDocument, retrieveContext } from "../../shared/utils/rag.js";
 
 // ドキュメント処理 (抽出 → チャンク → エンベディング → アップサート)
 await processDocument(documentId, s3Key);
@@ -308,8 +302,8 @@ export const handler = async (event) => {
 };
 
 // ✅ Good: shared からインポート
-import { docClient } from '@myelinbase-backend/shared/utils/dynamodb.js';
-import { processDocument } from '@myelinbase-backend/shared/utils/rag.js';
+import { docClient } from '../../shared/utils/dynamodb.js';
+import { processDocument } from '../../shared/utils/rag.js';
 
 export const handler = apiHandler(async (event) => {
   await processDocument(documentId, s3Key);
@@ -357,7 +351,7 @@ utils 同士の依存関係に注意し、循環参照が発生しないよう�
 
 ```json
 {
-  "name": "@myelinbase-backend/shared",
+  "name": "../../shared",
   "exports": {
     "./utils/dynamodb.js": "./utils/dynamodb.ts",
     "./utils/s3.js": "./utils/s3.ts",
