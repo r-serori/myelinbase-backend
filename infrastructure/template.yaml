@@ -160,7 +160,7 @@ Resources:
 
       # Custom Domain Configuration (Prod Only)
       Domain: !If
-        - IsProd
+        - HasCustomDomain
         - DomainName: !Ref DomainName
           CertificateArn: !Ref CertificateArn
           EndpointConfiguration: REGIONAL
