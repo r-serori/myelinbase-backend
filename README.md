@@ -1,4 +1,4 @@
-# Myelin Base - RAG Portfolio Application
+# Myelin Base - RAG Application
 
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript" alt="TypeScript" />
@@ -11,7 +11,7 @@
 
 ## 概要
 
-Myelin Base は、モダンなクラウド開発のベストプラクティスを実証するポートフォリオプロジェクトです。ドキュメントをアップロードすると自動的にテキスト抽出・チャンク分割・ベクトル化が行われ、アップロードしたドキュメントをコンテキストとして AI とチャットができます。
+Myelin Base は、ドキュメントをアップロードすると自動的にテキスト抽出・チャンク分割・ベクトル化が行われ、アップロードしたドキュメントをコンテキストとして AI とチャットができます。
 
 ### 主な機能
 
