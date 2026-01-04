@@ -9,7 +9,7 @@ const sfnClient = new SFNClient({});
 const lambdaClient = IS_LOCAL
   ? new LambdaClient({
       endpoint: process.env.LOCALSTACK_ENDPOINT,
-      region: "us-east-1",
+      region: "ap-northeast-1",
     })
   : new LambdaClient({});
 

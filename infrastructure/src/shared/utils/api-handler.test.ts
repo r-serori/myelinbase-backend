@@ -36,7 +36,8 @@ describe("API Handler Utils", () => {
     callbackWaitsForEmptyEventLoop: false,
     functionName: "test",
     functionVersion: "1",
-    invokedFunctionArn: "arn:aws:lambda:us-east-1:123456789012:function:test",
+    invokedFunctionArn:
+      "arn:aws:lambda:ap-northeast-1:123456789012:function:test",
     memoryLimitInMB: "128",
     awsRequestId: "test-request-id",
     logGroupName: "/aws/lambda/test",

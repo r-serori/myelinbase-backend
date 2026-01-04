@@ -2,7 +2,7 @@
 set -e
 
 ENDPOINT_URL="http://dynamodb-local:8000"
-REGION="us-east-1"
+REGION="ap-northeast-1"
 
 # テーブル名（template.yamlのローカル環境と一致させる）
 DOCUMENT_TABLE="myelinbase-local-documents"

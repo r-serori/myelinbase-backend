@@ -28,7 +28,7 @@ describe("Trigger Function", () => {
   beforeEach(async () => {
     jest.resetModules(); // モジュールキャッシュをクリア（環境変数の反映のため）
     process.env = { ...ORIGINAL_ENV }; // 環境変数をリセット
-    process.env.AWS_REGION = "us-east-1"; // Region missingエラーを回避
+    process.env.AWS_REGION = "ap-northeast-1"; // Region missingエラーを回避
 
     // resetModules後はSDKのクラスも新しくなるため、テスト内で再importしてクラスを取得する
     // これにより、ハンドラーが読み込むSDKクラスとモック設定に使うクラスが一致する
@@ -60,7 +60,7 @@ describe("Trigger Function", () => {
       {
         eventVersion: "2.1",
         eventSource: "aws:s3",
-        awsRegion: "us-east-1",
+        awsRegion: "ap-northeast-1",
         eventTime: new Date().toISOString(),
         eventName: "ObjectCreated:Put",
         userIdentity: { principalId: "test" },
@@ -92,7 +92,7 @@ describe("Trigger Function", () => {
     beforeEach(async () => {
       process.env.STAGE = "production";
       process.env.STATE_MACHINE_ARN =
-        "arn:aws:states:us-east-1:123:stateMachine:Test";
+        "arn:aws:states:ap-northeast-1:123:stateMachine:Test";
 
       // 環境変数を設定した後にモジュールを読み込む
       handler = (await import("./index")).handler;

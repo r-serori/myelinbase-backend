@@ -3,7 +3,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:00.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -37,7 +37,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -71,7 +71,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -105,7 +105,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -139,7 +139,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -173,7 +173,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -207,7 +207,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {
@@ -241,7 +241,7 @@
     {
       "eventVersion": "2.1",
       "eventSource": "aws:s3",
-      "awsRegion": "us-east-1",
+      "awsRegion": "ap-northeast-1",
       "eventTime": "2024-03-07T00:00:01.000Z",
       "eventName": "ObjectCreated:Put",
       "userIdentity": {

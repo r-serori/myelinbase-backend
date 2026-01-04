@@ -15,7 +15,7 @@ const IS_LOCAL_STAGE = process.env.STAGE === "local";
  */
 export function createS3Client(): S3Client {
   const config: S3ClientConfig = {
-    region: process.env.AWS_REGION || "us-east-1",
+    region: process.env.AWS_REGION || "ap-northeast-1",
     endpoint: process.env.S3_ENDPOINT,
     forcePathStyle: IS_LOCAL_STAGE,
   };

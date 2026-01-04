@@ -130,10 +130,10 @@ describe("Chat Function Integration Tests", () => {
     process.env.STAGE = "prod";
     process.env.USE_MOCK_AUTH = "false";
     process.env.USE_BEDROCK = "true";
-    process.env.USER_POOL_ID = "us-east-1_dummy";
+    process.env.USER_POOL_ID = "ap-northeast-1_dummy";
     process.env.CLIENT_ID = "client_dummy";
     process.env.ALLOWED_ORIGINS = "http://localhost:3000";
-    process.env.AWS_REGION = "us-east-1"; // Region missingエラー回避
+    process.env.AWS_REGION = "ap-northeast-1"; // Region missingエラー回避
 
     // 3. AWS SDKの動的インポートとモック作成
     // resetModules後はSDKのクラスも新しくなるため、テスト内で再importしてクラスを取得します
@@ -287,7 +287,8 @@ describe("Chat Function Integration Tests", () => {
       callbackWaitsForEmptyEventLoop: false,
       functionName: "test-function",
       functionVersion: "1",
-      invokedFunctionArn: "arn:aws:lambda:us-east-1:123456789012:function:test",
+      invokedFunctionArn:
+        "arn:aws:lambda:ap-northeast-1:123456789012:function:test",
       memoryLimitInMB: "128",
       awsRequestId: "test-request-id",
       logGroupName: "/aws/lambda/test",

@@ -11,7 +11,7 @@ echo "=========================================="
 # エンドポイント設定
 export AWS_ACCESS_KEY_ID=local
 export AWS_SECRET_ACCESS_KEY=local
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_DEFAULT_REGION=ap-northeast-1
 ENDPOINT="http://localhost:4566"
 
 function awslocal() {
@@ -68,7 +68,7 @@ echo "📋 ローカル環境設定:"
 echo "--------------------------------------------------"
 echo "S3 Endpoint      : http://localhost:4566"
 echo "DynamoDB Endpoint: http://localhost:8000"
-echo "Region           : us-east-1"
+echo "Region           : ap-northeast-1"
 echo "--------------------------------------------------"
 echo ""
 echo "🔐 認証について:"

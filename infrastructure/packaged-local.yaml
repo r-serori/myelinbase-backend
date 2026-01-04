@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: "Myelin Base AI Platform - Local Development Template (No Cognito)\n"
 Parameters:
@@ -10,7 +10,7 @@ Parameters:
     Default: http://localhost:3001
   UseBedrock:
     Type: String
-    Default: 'false'
+    Default: "false"
   PineconeApiKeySecretName:
     Type: String
     Default: pinecone-api-key
@@ -38,7 +38,7 @@ Globals:
     Timeout: 30
     MemorySize: 512
     Architectures:
-    - arm64
+      - arm64
     Environment:
       Variables:
         STAGE: local
@@ -92,11 +92,11 @@ Resources:
         Cors:
           AllowCredentials: true
           AllowHeaders:
-          - '*'
+            - "*"
           AllowMethods:
-          - POST
+            - POST
           AllowOrigins:
-          - Ref: FrontendUrl
+            - Ref: FrontendUrl
       Environment:
         Variables:
           TABLE_NAME:
@@ -106,20 +106,20 @@ Resources:
           USER_POOL_ID: local-user-pool
           CLIENT_ID: local-client-id
           MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
-          NODE_OPTIONS: ' --enable-source-maps'
+          NODE_OPTIONS: " --enable-source-maps"
       Policies:
-      - Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Action:
-          - dynamodb:*
-          Resource: '*'
-        - Effect: Allow
-          Action:
-          - bedrock:InvokeModel
-          - bedrock:InvokeModelWithResponseStream
-          - secretsmanager:GetSecretValue
-          Resource: '*'
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - secretsmanager:GetSecretValue
+              Resource: "*"
       Events:
         Chat:
           Type: Api
@@ -174,13 +174,13 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-        - src/functions/chat/index.ts
+          - src/functions/chat/index.ts
         External:
-        - '@aws-sdk/*'
+          - "@aws-sdk/*"
         Format: cjs
         Minify: true
         OutExtension:
-        - .js=.cjs
+          - .js=.cjs
         Sourcemap: true
         Target: es2022
       SamResourceId: ChatAgentFunction
@@ -199,28 +199,28 @@ Resources:
             Fn::Sub: ${ProjectName}-local-documents
           BUCKET_NAME:
             Fn::Sub: ${ProjectName}-local-docs
-          NODE_OPTIONS: ' --enable-source-maps'
+          NODE_OPTIONS: " --enable-source-maps"
       Policies:
-      - Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Action:
-          - dynamodb:*
-          - s3:*
-          - bedrock:InvokeModel
-          - secretsmanager:GetSecretValue
-          Resource: '*'
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+                - s3:*
+                - bedrock:InvokeModel
+                - secretsmanager:GetSecretValue
+              Resource: "*"
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-        - src/functions/processor/index.ts
+          - src/functions/processor/index.ts
         External:
-        - '@aws-sdk/*'
+          - "@aws-sdk/*"
         Format: cjs
         Minify: true
         OutExtension:
-        - .js=.cjs
+          - .js=.cjs
         Sourcemap: true
         Target: es2022
       SamResourceId: DocProcessorFunction
@@ -235,31 +235,31 @@ Resources:
       MemorySize: 512
       Environment:
         Variables:
-          STATE_MACHINE_ARN: arn:aws:states:us-east-1:000000000000:stateMachine:local-rag-pipeline
+          STATE_MACHINE_ARN: arn:aws:states:ap-northeast-1:000000000000:stateMachine:local-rag-pipeline
           PROCESSOR_FUNCTION_NAME:
             Fn::Sub: ${ProjectName}-local-doc-processor
           LOCALSTACK_ENDPOINT:
             Ref: LocalstackEndpoint
-          NODE_OPTIONS: ' --enable-source-maps'
+          NODE_OPTIONS: " --enable-source-maps"
       Policies:
-      - Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Action:
-          - states:StartExecution
-          - lambda:InvokeFunction
-          Resource: '*'
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+                - lambda:InvokeFunction
+              Resource: "*"
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-        - src/functions/trigger/index.ts
+          - src/functions/trigger/index.ts
         External:
-        - '@aws-sdk/*'
+          - "@aws-sdk/*"
         Format: cjs
         Minify: true
         OutExtension:
-        - .js=.cjs
+          - .js=.cjs
         Sourcemap: true
         Target: es2022
       SamResourceId: IngestionTriggerFunction
@@ -277,26 +277,26 @@ Resources:
             Fn::Sub: ${ProjectName}-local-docs
           PINECONE_INDEX_NAME:
             Ref: PineconeIndexName
-          NODE_OPTIONS: ' --enable-source-maps'
+          NODE_OPTIONS: " --enable-source-maps"
       Policies:
-      - Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Action:
-          - s3:DeleteObject
-          - secretsmanager:GetSecretValue
-          Resource: '*'
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+                - secretsmanager:GetSecretValue
+              Resource: "*"
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-        - src/functions/cleanup/index.ts
+          - src/functions/cleanup/index.ts
         External:
-        - '@aws-sdk/*'
+          - "@aws-sdk/*"
         Format: cjs
         Minify: true
         OutExtension:
-        - .js=.cjs
+          - .js=.cjs
         Sourcemap: true
         Target: es2022
       SamResourceId: DocumentCleanupFunction
@@ -314,16 +314,16 @@ Resources:
             Fn::Sub: ${ProjectName}-local-documents
           BUCKET_NAME:
             Fn::Sub: ${ProjectName}-local-docs
-          PRESIGNED_URL_EXPIRY: '900'
-          NODE_OPTIONS: ' --enable-source-maps'
+          PRESIGNED_URL_EXPIRY: "900"
+          NODE_OPTIONS: " --enable-source-maps"
       Policies:
-      - Version: '2012-10-17'
-        Statement:
-        - Effect: Allow
-          Action:
-          - dynamodb:*
-          - s3:*
-          Resource: '*'
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:*
+                - s3:*
+              Resource: "*"
       Events:
         GetDocuments:
           Type: Api
@@ -378,13 +378,13 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-        - src/functions/documents/index.ts
+          - src/functions/documents/index.ts
         External:
-        - '@aws-sdk/*'
+          - "@aws-sdk/*"
         Format: cjs
         Minify: true
         OutExtension:
-        - .js=.cjs
+          - .js=.cjs
         Sourcemap: true
         Target: es2022
       SamResourceId: DocumentsFunction
@@ -393,8 +393,8 @@ Outputs:
     Description: Streaming Function URL for Chat Agent
     Value:
       Fn::GetAtt:
-      - ChatAgentFunctionUrl
-      - FunctionUrl
+        - ChatAgentFunctionUrl
+        - FunctionUrl
   ApiEndpoint:
     Description: REST API Endpoint
     Value:

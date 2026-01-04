@@ -9,7 +9,7 @@ FOLLOW="${2:-false}"
 export AWS_ENDPOINT_URL="http://127.0.0.1:4566"
 export AWS_ACCESS_KEY_ID=local
 export AWS_SECRET_ACCESS_KEY=local
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_DEFAULT_REGION=ap-northeast-1
 
 echo "🔍 Fetching logs for Lambda function: $FUNCTION_NAME"
 echo "---------------------------------------------------"

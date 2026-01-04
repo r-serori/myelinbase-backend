@@ -9,7 +9,7 @@ import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
  */
 export function createDynamoDBClient(): DynamoDBDocumentClient {
   const config: DynamoDBClientConfig = {
-    region: process.env.AWS_REGION || "us-east-1",
+    region: process.env.AWS_REGION || "ap-northeast-1",
     endpoint: process.env.DYNAMODB_ENDPOINT,
   };
 
