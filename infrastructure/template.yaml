@@ -24,20 +24,6 @@ Parameters:
     Type: String
     Description: Allowed Origin for CORS (e.g. https://app.myelinbase.com)
 
-  # --- Custom Domain Parameters (Prod Only) ---
-  DomainName:
-    Type: String
-    Description: Custom domain name for API (e.g. api.myelinbase.com)
-    Default: ""
-  CertificateArn:
-    Type: String
-    Description: ACM Certificate ARN for the custom domain (us-east-1)
-    Default: ""
-  HostedZoneId:
-    Type: String
-    Description: Route53 Hosted Zone ID for creating alias record
-    Default: ""
-
   # --- Application Parameters ---
   UseBedrock:
     Type: String
@@ -68,8 +54,6 @@ Parameters:
 # ============================================
 Conditions:
   IsProd: !Equals [!Ref Stage, "prod"]
-  # DomainNameが指定されている場合のみカスタムドメインを作成
-  HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
 
 # ============================================
 # Globals
@@ -79,7 +63,8 @@ Globals:
     Runtime: nodejs20.x
     Timeout: 30
     MemorySize: 512
-    Architectures: [arm64]
+    Architectures:
+      - arm64
     Environment:
       Variables:
         STAGE: !Ref Stage
@@ -102,9 +87,11 @@ Resources:
   CognitoUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
-      UserPoolName: !Sub ${ProjectName}-${Stage}-user-pool
-      UsernameAttributes: [email]
-      AutoVerifiedAttributes: [email]
+      UserPoolName: !Sub "${ProjectName}-${Stage}-user-pool"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
       Policies:
         PasswordPolicy:
           MinimumLength: 8
@@ -117,16 +104,15 @@ Resources:
           Name: email
           Required: true
           Mutable: true
-      # ユーザーの自己登録を許可するかどうか（必要に応じてAdminOnlyに変更）
       AdminCreateUserConfig:
         AllowAdminCreateUserOnly: false
 
   CognitoUserPoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      ClientName: !Sub ${ProjectName}-${Stage}-client
+      ClientName: !Sub "${ProjectName}-${Stage}-client"
       UserPoolId: !Ref CognitoUserPool
-      GenerateSecret: false # SPA/Frontendからの利用を想定してFalse
+      GenerateSecret: false
       ExplicitAuthFlows:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
@@ -134,20 +120,18 @@ Resources:
       PreventUserExistenceErrors: ENABLED
 
   # ---------------------------------------------------
-  # API Gateway
+  # API Gateway (カスタムドメインなし - シンプル版)
   # ---------------------------------------------------
   ServerlessApiGateway:
     Type: AWS::Serverless::Api
     Properties:
-      Name: !Sub ${ProjectName}-${Stage}-api
+      Name: !Sub "${ProjectName}-${Stage}-api"
       StageName: !Ref Stage
       Cors:
         AllowMethods: "'*'"
         AllowHeaders: "'*'"
         AllowOrigin: !Sub "'${FrontendUrl}'"
-        AllowCredentials: "'true'"
-
-      # --- Authentication Configuration ---
+        AllowCredentials: true
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
         Authorizers:
@@ -156,48 +140,12 @@ Resources:
             IdentitySource: method.request.header.Authorization
 
   # ---------------------------------------------------
-  # Custom Domain Resources
-  # ---------------------------------------------------
-  ApiCustomDomainName:
-    Type: AWS::ApiGateway::DomainName
-    Condition: HasCustomDomain
-    Properties:
-      DomainName: !Ref DomainName
-      RegionalCertificateArn: !Ref CertificateArn
-      EndpointConfiguration:
-        Types:
-          - REGIONAL
-      SecurityPolicy: TLS_1_2
-
-  ApiBasePathMapping:
-    Type: AWS::ApiGateway::BasePathMapping
-    Condition: HasCustomDomain
-    DependsOn:
-      - ServerlessApiGatewayStage
-    Properties:
-      DomainName: !Ref ApiCustomDomainName
-      RestApiId: !Ref ServerlessApiGateway
-      Stage: !Ref Stage
-
-  ApiRoute53RecordSet:
-    Type: AWS::Route53::RecordSetGroup
-    Condition: HasCustomDomain
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      RecordSets:
-        - Name: !Ref DomainName
-          Type: A
-          AliasTarget:
-            DNSName: !GetAtt ApiCustomDomainName.RegionalDomainName
-            HostedZoneId: !GetAtt ApiCustomDomainName.RegionalHostedZoneId
-
-  # ---------------------------------------------------
   # Database (DynamoDB) - DocumentTable
   # ---------------------------------------------------
   DocumentTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub ${ProjectName}-${Stage}-documents
+      TableName: !Sub "${ProjectName}-${Stage}-documents"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: documentId
@@ -240,27 +188,26 @@ Resources:
   ChatAgentFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectName}-${Stage}-agent
+      FunctionName: !Sub "${ProjectName}-${Stage}-agent"
       CodeUri: .
       Handler: index.handler
       Description: Streaming Chat Agent
       Timeout: 300
       MemorySize: 1024
-      # Function URLは認証なし（またはIAM）で公開されるため注意。
-      # 厳密に保護する場合はAPI Gateway経由のみにするか、Function URLにもIAM認証をかける。
       FunctionUrlConfig:
         AuthType: NONE
         InvokeMode: RESPONSE_STREAM
         Cors:
           AllowCredentials: true
-          AllowHeaders: ["*"]
-          AllowMethods: [POST]
+          AllowHeaders:
+            - "*"
+          AllowMethods:
+            - POST
           AllowOrigins:
             - !Ref FrontendUrl
       Environment:
         Variables:
-          TABLE_NAME: !Sub ${ProjectName}-${Stage}-chat-history
-          # Cognitoリソースへの参照を設定
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
           USER_POOL_ID: !Ref CognitoUserPool
           CLIENT_ID: !Ref CognitoUserPoolClient
       Policies:
@@ -283,7 +230,6 @@ Resources:
             RestApiId: !Ref ServerlessApiGateway
             Path: /chat
             Method: POST
-            # DefaultAuthorizerにより自動的にCognito認証が適用されます
         ChatStream:
           Type: Api
           Properties:
@@ -340,15 +286,15 @@ Resources:
   DocProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectName}-${Stage}-doc-processor
+      FunctionName: !Sub "${ProjectName}-${Stage}-doc-processor"
       CodeUri: .
       Handler: index.handler
       Timeout: 120
       MemorySize: 1024
       Environment:
         Variables:
-          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
-          TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
+          BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -379,12 +325,11 @@ Resources:
   IngestionTriggerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectName}-${Stage}-trigger
+      FunctionName: !Sub "${ProjectName}-${Stage}-trigger"
       CodeUri: .
       Handler: index.handler
       Environment:
         Variables:
-          # Step Functions ARN等は環境に合わせて調整、またはImportValue推奨
           STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-${Stage}-pipeline"
       Policies:
         - Version: "2012-10-17"
@@ -413,14 +358,14 @@ Resources:
   DocumentsFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectName}-${Stage}-documents
+      FunctionName: !Sub "${ProjectName}-${Stage}-documents"
       CodeUri: .
       Handler: index.handler
       Timeout: 30
       Environment:
         Variables:
-          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
-          TABLE_NAME: !Sub ${ProjectName}-${Stage}-documents
+          BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
           PRESIGNED_URL_EXPIRY: "900"
       Policies:
         - Version: "2012-10-17"
@@ -437,7 +382,6 @@ Resources:
             RestApiId: !Ref ServerlessApiGateway
             Path: /documents
             Method: GET
-            # DefaultAuthorizerにより自動的にCognito認証が適用されます
         UploadRequest:
           Type: Api
           Properties:
@@ -494,13 +438,13 @@ Resources:
   DocumentCleanupFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub ${ProjectName}-${Stage}-cleanup
+      FunctionName: !Sub "${ProjectName}-${Stage}-cleanup"
       CodeUri: .
       Handler: index.handler
       Timeout: 30
       Environment:
         Variables:
-          BUCKET_NAME: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+          BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -540,14 +484,21 @@ Resources:
   DocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${ProjectName}-${Stage}-docs-${AWS::AccountId}
+      BucketName: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
       CorsConfiguration:
         CorsRules:
-          - AllowedHeaders: ["*"]
-            AllowedMethods: [PUT, POST, GET, DELETE, HEAD]
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - PUT
+              - POST
+              - GET
+              - DELETE
+              - HEAD
             AllowedOrigins:
               - !Ref FrontendUrl
-            ExposeHeaders: [ETag]
+            ExposedHeaders:
+              - ETag
             MaxAge: 3000
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -572,24 +523,21 @@ Resources:
 # ============================================
 Outputs:
   ApiEndpoint:
-    Description: "API Gateway Endpoint URL"
-    Value: !If
-      - HasCustomDomain
-      - !Sub "https://${DomainName}"
-      - !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Description: API Gateway Endpoint URL
+    Value: !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
 
   ChatAgentEndpoint:
-    Description: "Streaming Function URL for Chat Agent (Note: Function URL has NO Auth by default)"
+    Description: Streaming Function URL for Chat Agent
     Value: !GetAtt ChatAgentFunctionUrl.FunctionUrl
 
   CognitoUserPoolId:
-    Description: "Cognito User Pool ID"
+    Description: Cognito User Pool ID
     Value: !Ref CognitoUserPool
 
   CognitoUserPoolClientId:
-    Description: "Cognito User Pool Client ID"
+    Description: Cognito User Pool Client ID
     Value: !Ref CognitoUserPoolClient
 
   DocumentsBucketName:
-    Description: "S3 Bucket Name"
+    Description: S3 Bucket Name
     Value: !Ref DocumentsBucket
