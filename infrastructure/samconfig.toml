@@ -5,14 +5,8 @@ version = 0.1
 stack_name = "myelinbase-backend"
 
 # ============================================
-# Local Development
-# ※ ローカル環境は template-local.yaml を使用するため、
-#   通常の sam local コマンドでこのファイルを使う場合は
-#   template_file = "template-local.yaml" オプションが必要です。
-# ============================================
-
-# ============================================
 # Dev Environment (AWS)
+# template.yaml を使用（カスタムドメインなし）
 # ============================================
 [dev]
 [dev.deploy.parameters]
@@ -24,8 +18,7 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Stage=dev",
   "ProjectName=myelinbase-backend",
-  # 開発環境: Vercel Preview URL等からのアクセスを許可するためにワイルドカード推奨
-  "FrontendUrl=*", 
+  "FrontendUrl=*",
   "UseBedrock=false",
   "PineconeApiKeySecretName=pinecone-api-key"
 ]
@@ -37,10 +30,12 @@ parallel = true
 
 # ============================================
 # Prod Environment (AWS)
+# template-prod.yaml を使用（カスタムドメインあり）
 # ============================================
 [prod]
 [prod.deploy.parameters]
 stack_name = "myelinbase-backend-prod"
+template_file = "template-prod.yaml"
 resolve_s3 = true
 region = "us-east-1"
 confirm_changeset = true
@@ -48,20 +43,16 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
   "Stage=prod",
   "ProjectName=myelinbase-backend",
-  # 本番環境: 明確なFrontend URL (Vercel Custom Domain)
   "FrontendUrl=https://app.myelinbase.com",
-  # 本番環境: Backend Custom Domain
   "DomainName=api.myelinbase.com",
-  # 事前に作成したACM証明書のARN
   "CertificateArn=arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  # 事前に確認したRoute53 Hosted Zone ID
   "HostedZoneId=Z0123456789ABCDEFGHIJ",
-  # Bedrock有効
   "UseBedrock=true",
   "PineconeApiKeySecretName=pinecone-api-key-prod"
 ]
 image_repositories = []
 
 [prod.build.parameters]
+template_file = "template-prod.yaml"
 cached = true
 parallel = true

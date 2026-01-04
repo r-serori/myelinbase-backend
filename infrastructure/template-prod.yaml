@@ -2,8 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Description: >
-  Myelin Base AI Platform - Backend (Dev Environment)
-  カスタムドメインなしのシンプル構成
+  Myelin Base AI Platform - Backend (Production Environment)
+  カスタムドメイン対応の本番構成
 
 # ============================================
 # Parameters
@@ -15,23 +15,37 @@ Parameters:
 
   Stage:
     Type: String
-    Default: dev
+    Default: prod
     Description: Deployment stage
 
   FrontendUrl:
     Type: String
-    Description: Allowed Origin for CORS
+    Description: Allowed Origin for CORS (e.g. https://app.myelinbase.com)
 
+  # --- Custom Domain Parameters ---
+  DomainName:
+    Type: String
+    Description: Custom domain name for API (e.g. api.myelinbase.com)
+
+  CertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for the custom domain
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 Hosted Zone ID for creating alias record
+
+  # --- Application Parameters ---
   UseBedrock:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues:
       - "true"
       - "false"
 
   PineconeApiKeySecretName:
     Type: String
-    Default: pinecone-api-key
+    Default: pinecone-api-key-prod
     Description: SecretsManager secret name for Pinecone API Key
 
   PineconeIndexName:
@@ -88,7 +102,7 @@ Resources:
           MinimumLength: 8
           RequireLowercase: true
           RequireNumbers: true
-          RequireSymbols: false
+          RequireSymbols: true
           RequireUppercase: true
       Schema:
         - AttributeDataType: String
@@ -107,11 +121,10 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
-        - ALLOW_USER_PASSWORD_AUTH
       PreventUserExistenceErrors: ENABLED
 
   # ---------------------------------------------------
-  # API Gateway (カスタムドメインなし)
+  # API Gateway (カスタムドメインなし - 別リソースで設定)
   # ---------------------------------------------------
   ServerlessApiGateway:
     Type: AWS::Serverless::Api
@@ -131,10 +144,45 @@ Resources:
             IdentitySource: method.request.header.Authorization
 
   # ---------------------------------------------------
+  # Custom Domain Resources
+  # ---------------------------------------------------
+  ApiCustomDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      DomainName: !Ref DomainName
+      RegionalCertificateArn: !Ref CertificateArn
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      SecurityPolicy: TLS_1_2
+
+  ApiBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    DependsOn:
+      - ServerlessApiGatewayStage
+    Properties:
+      DomainName: !Ref ApiCustomDomainName
+      RestApiId: !Ref ServerlessApiGateway
+      Stage: !Ref Stage
+
+  ApiRoute53RecordSet:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: A
+          AliasTarget:
+            DNSName: !GetAtt ApiCustomDomainName.RegionalDomainName
+            HostedZoneId: !GetAtt ApiCustomDomainName.RegionalHostedZoneId
+
+  # ---------------------------------------------------
   # Database (DynamoDB) - DocumentTable
   # ---------------------------------------------------
   DocumentTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${ProjectName}-${Stage}-documents"
       BillingMode: PAY_PER_REQUEST
@@ -172,6 +220,8 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
 
   # ---------------------------------------------------
   # Chat Agent API
@@ -474,6 +524,8 @@ Resources:
   # ---------------------------------------------------
   DocumentsBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BucketName: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
       CorsConfiguration:
@@ -496,6 +548,8 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
 
   # ---------------------------------------------------
   # S3 -> Lambda Permission
@@ -514,7 +568,11 @@ Resources:
 # ============================================
 Outputs:
   ApiEndpoint:
-    Description: API Gateway Endpoint URL
+    Description: API Gateway Endpoint URL (Custom Domain)
+    Value: !Sub "https://${DomainName}"
+
+  ApiGatewayEndpoint:
+    Description: API Gateway Default Endpoint URL
     Value: !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
 
   ChatAgentEndpoint:
@@ -532,3 +590,7 @@ Outputs:
   DocumentsBucketName:
     Description: S3 Bucket Name
     Value: !Ref DocumentsBucket
+
+  CustomDomainName:
+    Description: Custom Domain Name
+    Value: !Ref DomainName
