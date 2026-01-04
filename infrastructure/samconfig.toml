@@ -19,7 +19,7 @@ fail_on_empty_changeset = false
 parameter_overrides = [
   "Stage=dev",
   "ProjectName=myelinbase-backend",
-  "FrontendUrl=https://*.vercel.app",
+  "FrontendUrl=*",
   "UseBedrock=false",
   "PineconeApiKeySecretName=pinecone-api-key"
 ]
