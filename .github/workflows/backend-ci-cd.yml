@@ -13,8 +13,6 @@ permissions:
 jobs:
   # ===================================================
   # 1. Test & Validation (CI)
-  #    - Check Linting
-  #    - Run Unit Tests
   # ===================================================
   test:
     name: Test and Validate
@@ -32,14 +30,13 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      # Lintチェック (package.jsonに lint コマンドがない場合はスキップ、あるいは validate:lint を使用)
-      # ここでは sam validate --lint はAWS認証が必要な場合があるため、シンプルな jest test を優先
       - name: Run Unit Tests
         run: npm test
 
   # ===================================================
   # 2. Deploy to Development (CD)
   #    - Triggered on push to 'develop' branch
+  #    - Uses template.yaml (no custom domain)
   # ===================================================
   deploy-dev:
     name: Deploy to Dev
@@ -77,6 +74,7 @@ jobs:
   # ===================================================
   # 3. Deploy to Production (CD)
   #    - Triggered on push to 'main' branch
+  #    - Uses template-prod.yaml (with custom domain)
   # ===================================================
   deploy-prod:
     name: Deploy to Prod
