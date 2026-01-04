@@ -120,7 +120,7 @@ SAM Local で使用する環境変数を定義しています。
 ```json
 {
   "Parameters": {
-    "AWS_REGION": "us-east-1",
+    "AWS_REGION": "ap-northeast-1",
     "DYNAMODB_ENDPOINT": "http://host.docker.internal:8000",
     "S3_ENDPOINT": "http://host.docker.internal:4566",
     "STAGE": "local"
@@ -276,7 +276,7 @@ awslocal logs filter-log-events \
 
 # Step Functions 実行一覧
 awslocal stepfunctions list-executions \
-  --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:myelinbase-local-rag-pipeline
+  --state-machine-arn arn:aws:states:ap-northeast-1:000000000000:stateMachine:myelinbase-local-rag-pipeline
 ```
 
 ## フロントエンドとの連携

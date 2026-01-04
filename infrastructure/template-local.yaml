@@ -237,7 +237,7 @@ Resources:
       MemorySize: 512
       Environment:
         Variables:
-          STATE_MACHINE_ARN: "arn:aws:states:us-east-1:000000000000:stateMachine:local-rag-pipeline"
+          STATE_MACHINE_ARN: "arn:aws:states:ap-northeast-1:000000000000:stateMachine:local-rag-pipeline"
           PROCESSOR_FUNCTION_NAME: !Sub ${ProjectName}-local-doc-processor
           LOCALSTACK_ENDPOINT: !Ref LocalstackEndpoint
       Policies:

@@ -27,7 +27,7 @@ echo "✅ LocalStack is up and running!"
 export AWS_ENDPOINT_URL="http://127.0.0.1:4566"
 export AWS_ACCESS_KEY_ID=local
 export AWS_SECRET_ACCESS_KEY=local
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_DEFAULT_REGION=ap-northeast-1
 export AWS_PAGER=""
 
 # ---------------------------------------------------
@@ -38,7 +38,7 @@ trap "rm -f $AWS_CONFIG_FILE" EXIT
 
 cat <<EOF > $AWS_CONFIG_FILE
 [default]
-region = us-east-1
+region = ap-northeast-1
 output = json
 endpoint_url = http://127.0.0.1:4566
 request_checksum_calculation = when_required
@@ -85,7 +85,7 @@ aws cloudformation package \
   --template-file .aws-sam/build/template.yaml \
   --s3-bucket lambda-deploy-bucket \
   --output-template-file packaged-local.yaml \
-  --region us-east-1
+  --region ap-northeast-1
 
 # ---------------------------------------------------
 # 5. デプロイ
@@ -97,7 +97,7 @@ set +e # エラー即終了を一時的に無効化
 aws cloudformation deploy \
   --template-file packaged-local.yaml \
   --stack-name myelinbase-local \
-  --region us-east-1 \
+  --region ap-northeast-1 \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     ProjectName=myelinbase \
