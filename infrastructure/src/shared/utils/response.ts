@@ -18,6 +18,24 @@ export interface CorsHeaders {
 }
 
 export function getCorsHeaders(origin: string): CorsHeaders | undefined {
+  if (!origin && ALLOWED_ORIGINS.includes("*")) {
+    return {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers":
+        "Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token",
+      "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PATCH,DELETE",
+    };
+  }
+
+  if (ALLOWED_ORIGINS.includes("*")) {
+    return {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers":
+        "Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token",
+      "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PATCH,DELETE",
+    };
+  }
+
   if (ALLOWED_ORIGINS.includes(origin)) {
     return {
       "Access-Control-Allow-Origin": origin,
