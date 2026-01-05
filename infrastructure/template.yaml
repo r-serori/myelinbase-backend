@@ -20,6 +20,7 @@ Parameters:
 
   FrontendUrl:
     Type: String
+    Default: "*"
     Description: Allowed Origin for CORS
 
   UseBedrock:
@@ -195,7 +196,7 @@ Resources:
           AllowMethods:
             - POST
           AllowOrigins:
-            - "*"
+            - !Ref: FrontendUrl
       Environment:
         Variables:
           TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
@@ -487,7 +488,7 @@ Resources:
               - DELETE
               - HEAD
             AllowedOrigins:
-              - "*"
+              - !Ref: FrontendUrl
             ExposedHeaders:
               - ETag
             MaxAge: 3000
