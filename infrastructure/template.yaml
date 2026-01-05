@@ -196,7 +196,7 @@ Resources:
           AllowMethods:
             - POST
           AllowOrigins:
-            - !Ref: FrontendUrl
+            - !Ref FrontendUrl
       Environment:
         Variables:
           TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
@@ -488,7 +488,7 @@ Resources:
               - DELETE
               - HEAD
             AllowedOrigins:
-              - !Ref: FrontendUrl
+              - !Ref FrontendUrl
             ExposedHeaders:
               - ETag
             MaxAge: 3000
