@@ -170,7 +170,9 @@ Resources:
             - AttributeName: fileName
               KeyType: RANGE
           Projection:
-            ProjectionType: ALL
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - status
         - IndexName: FileHashIndex
           KeySchema:
             - AttributeName: ownerId
@@ -178,7 +180,9 @@ Resources:
             - AttributeName: fileHash
               KeyType: RANGE
           Projection:
-            ProjectionType: KEYS_ONLY
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - status
       StreamSpecification:
         StreamViewType: OLD_IMAGE
       TimeToLiveSpecification:
