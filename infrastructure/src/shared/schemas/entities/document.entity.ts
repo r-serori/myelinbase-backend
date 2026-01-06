@@ -18,6 +18,8 @@ export const DocumentEntitySchema = OwnerSchema.extend({
   // 内部フィールド
   s3Key: z.string(),
   s3Path: z.string(),
+  // コンテンツハッシュ（SHA-256）- 重複検知用
+  fileHash: z.string().optional(),
   // タイムスタンプ
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

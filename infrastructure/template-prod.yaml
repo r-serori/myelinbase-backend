@@ -196,6 +196,8 @@ Resources:
           AttributeType: S
         - AttributeName: createdAt
           AttributeType: S
+        - AttributeName: fileHash
+          AttributeType: S
       KeySchema:
         - AttributeName: documentId
           KeyType: HASH
@@ -216,6 +218,14 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: FileHashIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: fileHash
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
       StreamSpecification:
         StreamViewType: OLD_IMAGE
       TimeToLiveSpecification:
@@ -417,6 +427,17 @@ Resources:
               Action:
                 - states:StartExecution
               Resource: "*"
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref DocumentsBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
