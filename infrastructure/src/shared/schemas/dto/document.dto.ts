@@ -60,6 +60,8 @@ export const FileMetadataSchema = z
       .number()
       .min(0)
       .max(MAX_FILE_SIZE, ErrorCode.DOCUMENTS_FILE_TOO_LARGE),
+    // コンテンツハッシュ（SHA-256）- フロントエンドで計算して送信
+    fileHash: z.string().length(64).optional(),
   })
   .openapi("FileMetadata");
 
@@ -217,6 +219,7 @@ export const UploadRequestErrorResponseSchema = z
       ErrorCode.DOCUMENTS_INVALID_FILENAME_LENGTH_LIMIT,
       ErrorCode.DOCUMENTS_UNSUPPORTED_FILE_TYPE,
       ErrorCode.DOCUMENTS_FILENAME_EMPTY,
+      ErrorCode.DOCUMENTS_DUPLICATE_CONTENT,
       ErrorCode.VALIDATION_FAILED,
       ErrorCode.INVALID_PARAMETER,
     ]),

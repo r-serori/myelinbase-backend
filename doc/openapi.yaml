@@ -32,6 +32,7 @@ components:
         - DOCUMENTS_FILENAME_EMPTY
         - DOCUMENTS_SELECTION_EMPTY
         - DOCUMENTS_SELECTION_TOO_MANY
+        - DOCUMENTS_DUPLICATE_CONTENT
         - CHAT_SESSION_NAME_TOO_LONG
         - CHAT_SESSION_NAME_EMPTY
         - CHAT_QUERY_EMPTY
@@ -577,6 +578,10 @@ components:
           type: number
           minimum: 0
           maximum: 52428800
+        fileHash:
+          type: string
+          minLength: 64
+          maxLength: 64
       required:
         - fileName
         - contentType
@@ -743,6 +748,7 @@ components:
             - DOCUMENTS_INVALID_FILENAME_LENGTH_LIMIT
             - DOCUMENTS_UNSUPPORTED_FILE_TYPE
             - DOCUMENTS_FILENAME_EMPTY
+            - DOCUMENTS_DUPLICATE_CONTENT
             - VALIDATION_FAILED
             - INVALID_PARAMETER
       required:

@@ -363,6 +363,28 @@ async function uploadRequest(
   const results: UploadRequestFileResultDto[] = await Promise.all(
     files.map(async (file: FileMetadataDto) => {
       try {
+        // コンテンツハッシュによる重複チェック（ハッシュが提供されている場合のみ）
+        if (file.fileHash) {
+          const duplicateByHash = await checkDuplicateByHash(
+            ownerId,
+            file.fileHash
+          );
+          if (duplicateByHash) {
+            logger("WARN", "Duplicate content detected by hash", {
+              fileName: file.fileName,
+              fileHash: file.fileHash,
+              existingDocumentId: duplicateByHash,
+              ownerId,
+            });
+            return {
+              status: ResultStatusSchema.enum.error,
+              fileName: file.fileName,
+              errorCode: ErrorCode.DOCUMENTS_DUPLICATE_CONTENT,
+            };
+          }
+        }
+
+        // ファイル名による重複チェック（同名ファイルの置換用）
         const duplicateDocs = await docClient.send(
           new QueryCommand({
             TableName: TABLE_NAME,
@@ -420,6 +442,37 @@ async function uploadRequest(
 }
 
 /**
+ * コンテンツハッシュによる重複ドキュメントの検出
+ * 同一ユーザーが同じ内容のファイルを既にアップロード済みかをチェック
+ */
+async function checkDuplicateByHash(
+  ownerId: string,
+  fileHash: string
+): Promise<string | null> {
+  const result = await docClient.send(
+    new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: "FileHashIndex",
+      KeyConditionExpression: "ownerId = :ownerId AND fileHash = :fileHash",
+      ExpressionAttributeValues: {
+        ":ownerId": ownerId,
+        ":fileHash": fileHash,
+        ":deleted": DocumentStatusSchema.enum.DELETED,
+      },
+      FilterExpression: "#status <> :deleted",
+      ExpressionAttributeNames: { "#status": "status" },
+      Limit: 1,
+    })
+  );
+
+  if (result.Items && result.Items.length > 0) {
+    return result.Items[0].documentId;
+  }
+
+  return null;
+}
+
+/**
  * ドキュメントを削除リクエストにする (同名ファイルアップロード時の置換用)
  * こちらもTTLロジックに合わせる
  */
@@ -471,6 +524,8 @@ async function createUploadRequest(
     createdAt: now,
     updatedAt: now,
     tags: tags,
+    // コンテンツハッシュ（フロントエンドから提供された場合）
+    ...(file.fileHash && { fileHash: file.fileHash }),
   };
 
   await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: item }));
