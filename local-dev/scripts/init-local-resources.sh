@@ -31,6 +31,7 @@ aws dynamodb create-table \
         AttributeName=ownerId,AttributeType=S \
         AttributeName=fileName,AttributeType=S \
         AttributeName=createdAt,AttributeType=S \
+        AttributeName=fileHash,AttributeType=S \
     --key-schema \
         AttributeName=documentId,KeyType=HASH \
     --global-secondary-indexes \
@@ -44,6 +45,12 @@ aws dynamodb create-table \
             {
                 \"IndexName\": \"FileNameIndex\",
                 \"KeySchema\": [{\"AttributeName\":\"ownerId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"fileName\",\"KeyType\":\"RANGE\"}],
+                \"Projection\": {\"ProjectionType\":\"ALL\"},
+                \"ProvisionedThroughput\": {\"ReadCapacityUnits\":5,\"WriteCapacityUnits\":5}
+            },
+            {
+                \"IndexName\": \"FileHashIndex\",
+                \"KeySchema\": [{\"AttributeName\":\"ownerId\",\"KeyType\":\"HASH\"},{\"AttributeName\":\"fileHash\",\"KeyType\":\"RANGE\"}],
                 \"Projection\": {\"ProjectionType\":\"ALL\"},
                 \"ProvisionedThroughput\": {\"ReadCapacityUnits\":5,\"WriteCapacityUnits\":5}
             }
