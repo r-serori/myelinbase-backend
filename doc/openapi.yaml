@@ -594,7 +594,7 @@ components:
           items:
             $ref: "#/components/schemas/FileMetadata"
           minItems: 1
-          maxItems: 20
+          maxItems: 100
         tags:
           type: array
           items:
