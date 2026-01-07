@@ -58,8 +58,8 @@ async function invokeProcessorDirectly(
         FunctionName: processorFunctionName,
         Payload: JSON.stringify({
           action: "updateStatus",
-          documentId,
           status: "PROCESSING",
+          payload: { documentId },
         }),
       })
     );
@@ -70,9 +70,11 @@ async function invokeProcessorDirectly(
         FunctionName: processorFunctionName,
         Payload: JSON.stringify({
           action: "extractAndChunk",
-          documentId,
-          bucket,
-          key,
+          payload: {
+            documentId,
+            bucket,
+            key,
+          },
         }),
       })
     );
@@ -91,8 +93,10 @@ async function invokeProcessorDirectly(
         FunctionName: processorFunctionName,
         Payload: JSON.stringify({
           action: "embedAndUpsert",
-          documentId,
-          chunks: extractResult.chunks,
+          payload: {
+            documentId,
+            chunksS3Uri: extractResult.chunksS3Uri,
+          },
         }),
       })
     );
@@ -103,8 +107,8 @@ async function invokeProcessorDirectly(
         FunctionName: processorFunctionName,
         Payload: JSON.stringify({
           action: "updateStatus",
-          documentId,
           status: "COMPLETED",
+          payload: { documentId },
         }),
       })
     );
@@ -118,8 +122,8 @@ async function invokeProcessorDirectly(
           FunctionName: processorFunctionName,
           Payload: JSON.stringify({
             action: "updateStatus",
-            documentId,
             status: "FAILED",
+            payload: { documentId },
             error: {
               message: error instanceof Error ? error.message : String(error),
             },

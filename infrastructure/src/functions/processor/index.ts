@@ -1,4 +1,9 @@
 // src/functions/processor/index.ts
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 import { generateEmbeddings } from "../../shared/clients/bedrock";
@@ -26,14 +31,15 @@ import {
   extractTextFromS3,
 } from "../../shared/utils/text-processing";
 
+const BUCKET_NAME = process.env.BUCKET_NAME!;
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 const docClient = createDynamoDBClient();
 const s3Client = createS3Client();
 
 export const handler = async (event: ProcessorEvent) => {
-  const input = event.payload || event;
-  const documentId = input.documentId;
+  const payload = event.payload;
+  const documentId = payload?.documentId;
   try {
     if (!documentId) {
       throw new Error("documentId is required");
@@ -47,18 +53,22 @@ export const handler = async (event: ProcessorEvent) => {
         return await handleUpdateStatus(documentId, event.status, event.error);
 
       case "extractAndChunk":
-        if (!input.bucket || !input.key) {
+        if (!payload?.bucket || !payload?.key) {
           throw new Error(
             "bucket and key are required for extractAndChunk action"
           );
         }
-        return await handleExtractAndChunk(input.bucket, input.key, documentId);
+        return await handleExtractAndChunk(
+          payload.bucket,
+          payload.key,
+          documentId
+        );
 
       case "embedAndUpsert":
-        if (!input.chunks) {
-          throw new Error("chunks are required for embedAndUpsert action");
+        if (!payload?.chunksS3Uri) {
+          throw new Error("chunksS3Uri is required for embedAndUpsert action");
         }
-        return await handleEmbedAndUpsert(documentId, input.chunks);
+        return await handleEmbedAndUpsert(documentId, payload.chunksS3Uri);
 
       default:
         throw new Error(`Unknown action: ${event.action}`);
@@ -126,29 +136,55 @@ async function handleExtractAndChunk(
   );
   if (!doc.Item) throw new Error(`Document ${documentId} not found`);
 
-  const { contentType, fileName, ownerId } = doc.Item;
+  const { contentType } = doc.Item;
 
   const text = await extractTextFromS3(s3Client, bucket, key, contentType);
   if (!text) throw new Error("Extracted text is empty");
 
   const chunks: ChunkData[] = createSmallToBigChunks(text, 800, 200, 100, 50);
 
+  const chunksKey = `processing/${documentId}/chunks.json`;
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: chunksKey,
+      Body: JSON.stringify(chunks),
+      ContentType: "application/json",
+    })
+  );
+
   return {
     documentId,
-    bucket,
-    key,
-    ownerId,
-    fileName,
-    contentType,
-    text: "",
-    chunks,
+    chunksS3Uri: `s3://${BUCKET_NAME}/${chunksKey}`,
+    chunkCount: chunks.length,
   };
 }
 
 async function handleEmbedAndUpsert(
   documentId: string,
-  chunks: ChunkData[]
+  chunksS3Uri: string
 ): Promise<EmbedAndUpsertResponse> {
+  const uriMatch = chunksS3Uri.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  if (!uriMatch) {
+    throw new Error(`Invalid S3 URI: ${chunksS3Uri}`);
+  }
+
+  const [, chunksBucket, chunksKey] = uriMatch;
+
+  const chunksResponse = await s3Client.send(
+    new GetObjectCommand({
+      Bucket: chunksBucket,
+      Key: chunksKey,
+    })
+  );
+
+  if (!chunksResponse.Body) {
+    throw new Error(`Failed to fetch chunks from ${chunksS3Uri}`);
+  }
+
+  const chunksData = await chunksResponse.Body.transformToString();
+  const chunks: ChunkData[] = JSON.parse(chunksData);
+
   const doc = await docClient.send(
     new GetCommand({ TableName: TABLE_NAME, Key: { documentId } })
   );
@@ -175,6 +211,13 @@ async function handleEmbedAndUpsert(
   }));
 
   await upsertDocumentVectors(pinecone, vectors);
+
+  await s3Client.send(
+    new DeleteObjectCommand({
+      Bucket: chunksBucket,
+      Key: chunksKey,
+    })
+  );
 
   return { documentId, vectorCount: vectors.length };
 }

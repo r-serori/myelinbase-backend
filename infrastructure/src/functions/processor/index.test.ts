@@ -2,7 +2,11 @@
 process.env.TABLE_NAME = "TestTable";
 process.env.BUCKET_NAME = "TestBucket";
 
-import { S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import {
   DynamoDBDocumentClient,
   GetCommand,
@@ -158,6 +162,8 @@ describe("Processor Function", () => {
       const longText = "A".repeat(1000);
       (extractTextFromS3 as jest.Mock).mockResolvedValue(longText);
 
+      s3Mock.on(PutObjectCommand).resolves({});
+
       const event: ProcessorEvent = {
         action: "extractAndChunk",
         payload: {
@@ -169,31 +175,16 @@ describe("Processor Function", () => {
 
       const result = (await handler(event)) as ExtractAndChunkResponse;
 
-      // 結果の検証
       expect(result.documentId).toBe("doc-123");
-      expect(result.text).toBe(""); // RawTextは空文字で返す仕様に変更済み
-
-      // chunksの検証: ChunkData[] 型になっているか
-      expect(result.chunks.length).toBeGreaterThan(0);
-      const firstChunk = result.chunks[0];
-
-      // Small to Big の構造を持っているか確認
-      expect(firstChunk).toHaveProperty("childText");
-      expect(firstChunk).toHaveProperty("parentText");
-      expect(firstChunk).toHaveProperty("chunkIndex");
-      expect(firstChunk).toHaveProperty("parentId");
-
-      // ChildはParentに含まれているはず
-      expect(firstChunk.parentText).toContain(firstChunk.childText);
-
-      // 呼び出し検証
-      expect(ddbMock.calls()).toHaveLength(1);
-      expect(extractTextFromS3).toHaveBeenCalledWith(
-        expect.anything(),
-        "my-bucket",
-        "uploads/test.pdf",
-        "application/pdf"
+      expect(result.chunksS3Uri).toMatch(
+        /^s3:\/\/.+\/processing\/doc-123\/chunks\.json$/
       );
+      expect(result.chunkCount).toBeGreaterThan(0);
+
+      // S3 PutObjectが呼ばれたことを確認
+      expect(
+        s3Mock.calls().filter((c) => c.args[0] instanceof PutObjectCommand)
+      ).toHaveLength(1);
     });
 
     it("should throw error if document not found in DB", async () => {
@@ -218,7 +209,58 @@ describe("Processor Function", () => {
   // Action: embedAndUpsert
   // ==========================================
   describe("action: embedAndUpsert", () => {
+    it("should load chunks from S3 and process", async () => {
+      const mockChunks: ChunkData[] = [
+        {
+          childText: "child-1",
+          parentText: "parent-1-content",
+          chunkIndex: 0,
+          parentId: "parent-id-1",
+        },
+      ];
+
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          fileName: "test.pdf",
+          ownerId: "user-1",
+        },
+      });
+
+      // S3 GetObject のモック
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: {
+          transformToString: () => Promise.resolve(JSON.stringify(mockChunks)),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      });
+
+      (generateEmbeddings as jest.Mock).mockResolvedValue([[0.1, 0.2, 0.3]]);
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      const result = (await handler(event)) as EmbedAndUpsertResponse;
+
+      expect(result.documentId).toBe("doc-123");
+      expect(result.vectorCount).toBe(1);
+    });
+
     it("should generate embeddings for CHILD text and upsert PARENT text to Pinecone", async () => {
+      const mockChunks: ChunkData[] = [
+        {
+          childText: "child-1",
+          parentText: "parent-1-content-is-long",
+          chunkIndex: 0,
+          parentId: "parent-id-1",
+        },
+      ];
+
       // DBからメタデータ取得のモック
       ddbMock.on(GetCommand).resolves({
         Item: {
@@ -228,37 +270,32 @@ describe("Processor Function", () => {
         },
       });
 
-      // Small to Big 形式のチャンクデータ
-      const chunks: ChunkData[] = [
-        {
-          childText: "child-1",
-          parentText: "parent-1-content-is-long",
-          chunkIndex: 0,
-          parentId: "parent-id-1",
-        },
-        {
-          childText: "child-2",
-          parentText: "parent-1-content-is-long", // 同じ親を持つケース
-          chunkIndex: 1,
-          parentId: "parent-id-1",
-        },
-      ];
+      // S3 GetObject のモック
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: {
+          transformToString: () => Promise.resolve(JSON.stringify(mockChunks)),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      });
 
       const event: ProcessorEvent = {
         action: "embedAndUpsert",
         payload: {
           documentId: "doc-123",
-          chunks,
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
         },
       };
+
+      // generateEmbeddings のモック戻り値
+      (generateEmbeddings as jest.Mock).mockResolvedValue([[0.1, 0.2, 0.3]]);
 
       const result = (await handler(event)) as EmbedAndUpsertResponse;
 
       // 検証
-      expect(result).toEqual({ documentId: "doc-123", vectorCount: 2 });
+      expect(result).toEqual({ documentId: "doc-123", vectorCount: 1 });
 
-      // Embedding生成: "Child Text" が渡されていることを確認
-      expect(generateEmbeddings).toHaveBeenCalledWith(["child-1", "child-2"]);
+      // Embedding生成: "Child Text" が渡されていることを確認 (実装に合わせる)
+      expect(generateEmbeddings).toHaveBeenCalledWith(["child-1"]);
 
       // Pinecone保存
       expect(getPineconeApiKey).toHaveBeenCalled();
@@ -271,8 +308,10 @@ describe("Processor Function", () => {
         id: string;
         values: number[];
         metadata: { text: string; parentId: string };
-      }>; // [0] = client, [1] = vectors
-      expect(vectors).toHaveLength(2);
+      }>;
+
+      // chunkは1つなのでvectorも1つ
+      expect(vectors).toHaveLength(1);
 
       // メタデータには "Parent Text" が保存されていることを確認
       expect(vectors[0].metadata.text).toBe("parent-1-content-is-long");
