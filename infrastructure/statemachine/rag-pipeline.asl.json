@@ -1,0 +1,116 @@
+{
+  "Comment": "RAG Ingestion Pipeline - Document processing workflow for Myelin Base",
+  "StartAt": "UpdateStatusProcessing",
+  "States": {
+    "UpdateStatusProcessing": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "updateStatus",
+        "status": "PROCESSING",
+        "payload": {
+          "documentId.$": "$.documentId"
+        }
+      },
+      "ResultPath": "$.updateStatusResult",
+      "Next": "ExtractAndChunk",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "UpdateStatusFailed"
+        }
+      ]
+    },
+    "ExtractAndChunk": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "extractAndChunk",
+        "payload": {
+          "documentId.$": "$.documentId",
+          "bucket.$": "$.bucket",
+          "key.$": "$.key"
+        }
+      },
+      "ResultPath": "$.extractResult",
+      "Next": "EmbedAndUpsert",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "UpdateStatusFailed"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ]
+    },
+    "EmbedAndUpsert": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "embedAndUpsert",
+        "payload": {
+          "documentId.$": "$.documentId",
+          "chunks.$": "$.extractResult.chunks"
+        }
+      },
+      "ResultPath": "$.embedResult",
+      "Next": "UpdateStatusCompleted",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "UpdateStatusFailed"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ]
+    },
+    "UpdateStatusCompleted": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "updateStatus",
+        "status": "COMPLETED",
+        "payload": {
+          "documentId.$": "$.documentId"
+        }
+      },
+      "End": true
+    },
+    "UpdateStatusFailed": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "updateStatus",
+        "status": "FAILED",
+        "payload": {
+          "documentId.$": "$.documentId"
+        },
+        "error": {
+          "message.$": "States.Format('Pipeline failed: {}', $.error.Cause)"
+        }
+      },
+      "End": true
+    }
+  }
+}
