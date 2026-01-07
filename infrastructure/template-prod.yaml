@@ -492,12 +492,12 @@ Resources:
               Resource: !GetAtt DocumentIngestionQueue.Arn
       Events:
         SQSEvent:
-        Type: SQS
-        Properties:
-          Queue: !GetAtt DocumentIngestionQueue.Arn
-          BatchSize: 1
-          FunctionResponseTypes:
-            - ReportBatchItemFailures
+          Type: SQS
+          Properties:
+            Queue: !GetAtt DocumentIngestionQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
