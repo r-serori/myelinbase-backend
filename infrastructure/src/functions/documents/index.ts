@@ -8,11 +8,15 @@ import { APIGatewayProxyEvent } from "aws-lambda";
 import { randomUUID } from "crypto";
 
 import {
+  createPineconeClient,
+  deleteDocumentVectors,
+  getPineconeApiKey,
+} from "../../shared/clients/pinecone";
+import {
   BatchDeleteRequestDto,
   BatchDeleteRequestSchema,
   BatchDeleteResponseDto,
   BatchDeleteResultDto,
-  DocumentResponseDto,
   FileMetadataDto,
   GetDocumentResponseDto,
   GetDocumentsResponseDto,
@@ -151,8 +155,9 @@ async function getDocuments(ownerId: string): Promise<GetDocumentsResponseDto> {
   });
 
   const response = await docClient.send(command);
-  const entities = (response.Items || []) as DocumentEntity[];
-  const documents: DocumentResponseDto[] = entities.map(toDocumentDTO);
+  const items = (response.Items || []) as DocumentEntity[];
+
+  const documents = items.map((item) => toDocumentDTO(item));
   return { documents };
 }
 
@@ -271,6 +276,8 @@ async function deleteDocument(
   });
 
   await docClient.send(command);
+
+  await deletePineconeVectorsImmediately(documentId);
 }
 
 /**
@@ -363,19 +370,12 @@ async function uploadRequest(
   const results: UploadRequestFileResultDto[] = await Promise.all(
     files.map(async (file: FileMetadataDto) => {
       try {
-        // コンテンツハッシュによる重複チェック（ハッシュが提供されている場合のみ）
         if (file.fileHash) {
           const duplicateByHash = await checkDuplicateByHash(
             ownerId,
             file.fileHash
           );
           if (duplicateByHash) {
-            logger("WARN", "Duplicate content detected by hash", {
-              fileName: file.fileName,
-              fileHash: file.fileHash,
-              existingDocumentId: duplicateByHash,
-              ownerId,
-            });
             return {
               status: ResultStatusSchema.enum.error,
               fileName: file.fileName,
@@ -384,7 +384,6 @@ async function uploadRequest(
           }
         }
 
-        // ファイル名による重複チェック（同名ファイルの置換用）
         const duplicateDocs = await docClient.send(
           new QueryCommand({
             TableName: TABLE_NAME,
@@ -474,7 +473,6 @@ async function checkDuplicateByHash(
 
 /**
  * ドキュメントを削除リクエストにする (同名ファイルアップロード時の置換用)
- * こちらもTTLロジックに合わせる
  */
 async function markDocumentForDeletion(documentId: string, ownerId: string) {
   const ttl = Math.floor(Date.now() / 1000) + DOCUMENT_TTL_SECONDS;
@@ -496,6 +494,8 @@ async function markDocumentForDeletion(documentId: string, ownerId: string) {
       },
     })
   );
+
+  await deletePineconeVectorsImmediately(documentId);
 }
 
 /**
@@ -524,7 +524,6 @@ async function createUploadRequest(
     createdAt: now,
     updatedAt: now,
     tags: tags,
-    // コンテンツハッシュ（フロントエンドから提供された場合）
     ...(file.fileHash && { fileHash: file.fileHash }),
   };
 
@@ -545,6 +544,29 @@ async function createUploadRequest(
     expiresIn: PRESIGNED_URL_EXPIRY,
     s3Key,
   };
+}
+
+/**
+ * Pineconeからベクトルを即座に削除
+ */
+async function deletePineconeVectorsImmediately(
+  documentId: string
+): Promise<void> {
+  if (IS_LOCAL_STAGE) {
+    return;
+  }
+
+  try {
+    const apiKey = await getPineconeApiKey();
+    const pinecone = createPineconeClient(apiKey);
+    await deleteDocumentVectors(pinecone, documentId);
+  } catch (error) {
+    logger("ERROR", "Failed to delete Pinecone vectors immediately", {
+      documentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 /**

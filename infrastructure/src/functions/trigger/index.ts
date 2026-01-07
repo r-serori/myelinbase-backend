@@ -3,6 +3,8 @@ import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import { S3Event } from "aws-lambda";
 
+import { logger } from "../../shared/utils/api-handler";
+
 const IS_LOCAL = process.env.STAGE === "local";
 
 const sfnClient = new SFNClient({});
@@ -24,8 +26,10 @@ export const handler = async (event: S3Event) => {
       const documentId = match ? match[2] : null;
 
       if (!documentId) {
-        console.warn("Could not extract documentId from key:", key);
-        console.warn("Expected format: uploads/{ownerId}/{documentId}");
+        logger("WARN", "Could not extract documentId from key", {
+          key,
+          expectedFormat: "uploads/{ownerId}/{documentId}",
+        });
         return;
       }
 
@@ -113,7 +117,9 @@ async function invokeProcessorDirectly(
       })
     );
   } catch (error) {
-    console.error("[LOCAL] Processing failed:", error);
+    logger("ERROR", "[LOCAL] Processing failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
 
     // エラー時はステータスをFAILEDに更新
     try {
@@ -131,7 +137,12 @@ async function invokeProcessorDirectly(
         })
       );
     } catch (updateError) {
-      console.error("[LOCAL] Failed to update status to FAILED:", updateError);
+      logger("ERROR", "[LOCAL] Failed to update status to FAILED", {
+        error:
+          updateError instanceof Error
+            ? updateError.message
+            : String(updateError),
+      });
     }
   }
 }

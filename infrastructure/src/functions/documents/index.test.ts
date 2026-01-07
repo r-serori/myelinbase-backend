@@ -104,6 +104,12 @@ describe("Documents Function (Auth Integration)", () => {
       ),
     }));
 
+    jest.doMock("../../shared/clients/pinecone", () => ({
+      getPineconeApiKey: jest.fn().mockResolvedValue("mock-api-key"),
+      createPineconeClient: jest.fn().mockReturnValue({}),
+      deleteDocumentVectors: jest.fn().mockResolvedValue(undefined),
+    }));
+
     // デフォルトのモック動作: Presigned URL生成成功
     mockGenerateUploadUrl.mockResolvedValue("https://s3.mock/upload-url");
     mockGenerateDownloadUrl.mockResolvedValue("https://s3.mock/download-url");
