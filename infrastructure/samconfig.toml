@@ -20,7 +20,8 @@ parameter_overrides = [
   "Stage=dev",
   "ProjectName=myelinbase-backend",
   "UseBedrock=false",
-  "PineconeApiKeySecretName=pinecone-api-key"
+  "PineconeApiKeySecretName=pinecone-api-key",
+  "PineconeIndexName=myelinbase-documents"
 ]
 image_repositories = []
 
@@ -49,7 +50,8 @@ parameter_overrides = [
   "CertificateArn=arn:aws:acm:ap-northeast-1:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "HostedZoneId=Z0123456789ABCDEFGHIJ",
   "UseBedrock=true",
-  "PineconeApiKeySecretName=pinecone-api-key-prod"
+  "PineconeApiKeySecretName=pinecone-api-key-prod",
+  "PineconeIndexName=myelinbase-documents-prod"
 ]
 image_repositories = []
 

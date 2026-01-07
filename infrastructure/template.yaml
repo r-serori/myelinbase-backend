@@ -336,8 +336,6 @@ Resources:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
           TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
-          PINECONE_INDEX_NAME: !Ref PineconeIndexName
-          PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -547,8 +545,6 @@ Resources:
       Environment:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
-          PINECONE_INDEX_NAME: !Ref PineconeIndexName
-          PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
       Policies:
         - Version: "2012-10-17"
           Statement:

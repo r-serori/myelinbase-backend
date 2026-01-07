@@ -61,7 +61,7 @@
         "action": "embedAndUpsert",
         "payload": {
           "documentId.$": "$.documentId",
-          "chunks.$": "$.extractResult.chunks"
+          "chunksS3Uri.$": "$.extractResult.chunksS3Uri"
         }
       },
       "ResultPath": "$.embedResult",

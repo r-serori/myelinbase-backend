@@ -177,7 +177,8 @@ describe("Trigger Function", () => {
       // Lambda Invokeのモックレスポンス設定
       // Step 2のExtract結果のみ Payload を返す必要がある
       const extractResult = {
-        chunks: ["chunk1", "chunk2"],
+        chunksS3Uri: "s3://test-bucket/processing/doc-local/chunks.json",
+        chunkCount: 2,
       };
 
       const payloadBytes = new TextEncoder().encode(
@@ -190,9 +191,8 @@ describe("Trigger Function", () => {
       });
 
       lambdaMock.on(InvokeCommand).resolves({
-        Payload: payload as unknown as typeof payload & {
-          transformToString: () => string;
-        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Payload: payload as any,
         StatusCode: 200,
       });
 
@@ -209,8 +209,8 @@ describe("Trigger Function", () => {
       const call1 = JSON.parse((call1Input.Payload as string) || "{}");
       expect(call1).toEqual({
         action: "updateStatus",
-        documentId: "doc-local",
         status: "PROCESSING",
+        payload: { documentId: "doc-local" },
       });
 
       // Step 2: Extract and Chunk
@@ -218,9 +218,11 @@ describe("Trigger Function", () => {
       const call2 = JSON.parse((call2Input.Payload as string) || "{}");
       expect(call2).toEqual({
         action: "extractAndChunk",
-        documentId: "doc-local",
-        bucket: "test-bucket",
-        key: validKey,
+        payload: {
+          documentId: "doc-local",
+          bucket: "test-bucket",
+          key: validKey,
+        },
       });
 
       // Step 3: Embed and Upsert (前のステップの結果を使う)
@@ -228,8 +230,10 @@ describe("Trigger Function", () => {
       const call3 = JSON.parse((call3Input.Payload as string) || "{}");
       expect(call3).toEqual({
         action: "embedAndUpsert",
-        documentId: "doc-local",
-        chunks: ["chunk1", "chunk2"],
+        payload: {
+          documentId: "doc-local",
+          chunksS3Uri: "s3://test-bucket/processing/doc-local/chunks.json",
+        },
       });
 
       // Step 4: Update status to COMPLETED
@@ -237,8 +241,8 @@ describe("Trigger Function", () => {
       const call4 = JSON.parse((call4Input.Payload as string) || "{}");
       expect(call4).toEqual({
         action: "updateStatus",
-        documentId: "doc-local",
         status: "COMPLETED",
+        payload: { documentId: "doc-local" },
       });
     });
 
@@ -263,8 +267,8 @@ describe("Trigger Function", () => {
       const finalCall = JSON.parse((finalCallInput.Payload as string) || "{}");
       expect(finalCall).toMatchObject({
         action: "updateStatus",
-        documentId: "doc-error",
         status: "FAILED",
+        payload: { documentId: "doc-error" },
         error: {
           message: "Extraction Failed",
         },

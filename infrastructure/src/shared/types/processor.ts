@@ -7,10 +7,10 @@ import type { DocumentStatusDto } from "../schemas/dto/document.dto";
  * Small to Big アルゴリズム用のチャンクデータ構造
  */
 export interface ChunkData {
-  childText: string; // ベクトル化対象（Small）
-  parentText: string; // LLMコンテキスト対象（Big）
+  childText: string;
+  parentText: string;
   chunkIndex: number;
-  parentId: string; // 親チャンクのID（重複排除用）
+  parentId: string;
 }
 
 /**
@@ -20,12 +20,7 @@ export interface ProcessorPayload {
   documentId: string;
   bucket?: string;
   key?: string;
-  ownerId?: string;
-  fileName?: string;
-  contentType?: string;
-  text?: string;
-  // chunks?: string[]; // 旧仕様
-  chunks?: ChunkData[]; // 新仕様: Small to Big対応
+  chunksS3Uri?: string;
 }
 
 /**
@@ -45,15 +40,6 @@ export interface ProcessorEvent {
   status?: DocumentStatusDto;
   payload?: ProcessorPayload;
   error?: ProcessorError;
-  // State Machineからの直接入力（後方互換性のため）
-  documentId?: string;
-  bucket?: string;
-  key?: string;
-  ownerId?: string;
-  fileName?: string;
-  contentType?: string;
-  text?: string;
-  chunks?: ChunkData[];
 }
 
 /**
@@ -69,13 +55,8 @@ export interface UpdateStatusResponse {
  */
 export interface ExtractAndChunkResponse {
   documentId: string;
-  bucket: string;
-  key: string;
-  ownerId: string;
-  fileName: string;
-  contentType: string;
-  text: string;
-  chunks: ChunkData[];
+  chunksS3Uri: string;
+  chunkCount: number;
 }
 
 /**
