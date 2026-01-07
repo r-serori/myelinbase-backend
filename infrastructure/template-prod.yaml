@@ -384,6 +384,7 @@ Resources:
       Handler: index.handler
       Timeout: 300
       MemorySize: 1024
+      ReservedConcurrentExecutions: 10
       Environment:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
@@ -471,6 +472,8 @@ Resources:
       FunctionName: !Sub "${ProjectName}-${Stage}-trigger"
       CodeUri: .
       Handler: index.handler
+      MemorySize: 256
+      ReservedConcurrentExecutions: 5
       Environment:
         Variables:
           STATE_MACHINE_ARN: !Ref RAGPipelineStateMachine
@@ -481,17 +484,20 @@ Resources:
               Action:
                 - states:StartExecution
               Resource: !Ref RAGPipelineStateMachine
+            - Effect: Allow
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+              Resource: !GetAtt DocumentIngestionQueue.Arn
       Events:
-        S3Event:
-          Type: S3
+        SQSEvent:
+          Type: SQS
           Properties:
-            Bucket: !Ref DocumentsBucket
-            Events: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: uploads/
+            Queue: !GetAtt DocumentIngestionQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -718,3 +724,15 @@ Outputs:
   StateMachineLogGroup:
     Description: State Machine Log Group
     Value: !Ref RAGPipelineLogGroup
+
+  IngestionQueueUrl:
+    Description: "Document Ingestion SQS Queue URL"
+    Value: !Ref DocumentIngestionQueue
+
+  IngestionQueueArn:
+    Description: "Document Ingestion SQS Queue ARN"
+    Value: !GetAtt DocumentIngestionQueue.Arn
+
+  IngestionDLQUrl:
+    Description: "Document Ingestion Dead Letter Queue URL"
+    Value: !Ref DocumentIngestionDLQ
