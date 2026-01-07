@@ -84,6 +84,11 @@ export async function upsertDocumentVectors(
 
 /**
  * ドキュメントのベクターをPineconeから削除
+ *
+ * Serverless Indexではmetadata filterによる削除がサポートされていないため、
+ * IDプレフィックスを使用してベクターIDをリストし、それらを削除する
+ *
+ * @see https://docs.pinecone.io/guides/data/delete-data
  */
 export async function deleteDocumentVectors(
   client: Pinecone,
@@ -91,11 +96,34 @@ export async function deleteDocumentVectors(
 ): Promise<void> {
   const index = client.index(pineconeIndexName);
 
-  await index.deleteMany({
-    filter: {
-      documentId: { $eq: documentId },
-    },
-  });
+  const prefix = `${documentId}#`;
+  const allVectorIds: string[] = [];
+
+  let paginationToken: string | undefined;
+
+  do {
+    const response = await index.listPaginated({
+      prefix,
+      ...(paginationToken && { paginationToken }),
+    });
+
+    if (response.vectors) {
+      const ids = response.vectors.map((v) => v.id ?? "");
+      allVectorIds.push(...ids);
+    }
+
+    paginationToken = response.pagination?.next;
+  } while (paginationToken);
+
+  if (allVectorIds.length === 0) {
+    return;
+  }
+
+  const DELETE_BATCH_SIZE = 1000;
+  for (let i = 0; i < allVectorIds.length; i += DELETE_BATCH_SIZE) {
+    const batch = allVectorIds.slice(i, i + DELETE_BATCH_SIZE);
+    await index.deleteMany(batch);
+  }
 }
 
 /**
