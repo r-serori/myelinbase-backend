@@ -12,8 +12,6 @@ import {
 
 import { logger } from "../../shared/utils/api-handler";
 
-import { logger } from "../../shared/utils/api-handler";
-
 const IS_LOCAL = process.env.STAGE === "local";
 
 const sfnClient = new SFNClient({});
