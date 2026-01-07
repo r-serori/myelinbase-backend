@@ -11,7 +11,9 @@ extendZodWithOpenApi(z);
 // =================================================================
 
 export const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".md", ".markdown"];
-export const MAX_FILES = 20;
+export const MAX_FILES = 100;
+export const MAX_BATCH_DELETE = 100;
+
 export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 export const MAX_TAGS = 20;
 
@@ -100,7 +102,7 @@ export const BatchDeleteRequestSchema = z
     documentIds: z
       .array(z.string().max(100))
       .min(1, ErrorCode.DOCUMENTS_SELECTION_EMPTY)
-      .max(100, ErrorCode.INVALID_PARAMETER),
+      .max(MAX_BATCH_DELETE, ErrorCode.INVALID_PARAMETER),
   })
   .openapi("BatchDeleteRequest");
 
