@@ -2,8 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Description: >
-  Myelin Base AI Platform - Backend (Dev Environment)
-  カスタムドメインなしのシンプル構成
+  Myelin Base Backend - RAG AI Platform
 
 # ============================================
 # Parameters
@@ -331,12 +330,14 @@ Resources:
       FunctionName: !Sub "${ProjectName}-${Stage}-doc-processor"
       CodeUri: .
       Handler: index.handler
-      Timeout: 120
+      Timeout: 300
       MemorySize: 1024
       Environment:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
           TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+          PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -362,6 +363,54 @@ Resources:
           - "@aws-sdk/*"
 
   # ---------------------------------------------------
+  # RAG Pipeline State Machine (Step Functions)
+  # ---------------------------------------------------
+  RAGPipelineStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "${ProjectName}-${Stage}-pipeline"
+      DefinitionUri: statemachine/rag-pipeline.asl.json
+      DefinitionSubstitutions:
+        DocProcessorFunctionArn: !GetAtt DocProcessorFunction.Arn
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt DocProcessorFunction.Arn
+            - Effect: Allow
+              Action:
+                - logs:CreateLogDelivery
+                - logs:GetLogDelivery
+                - logs:UpdateLogDelivery
+                - logs:DeleteLogDelivery
+                - logs:ListLogDeliveries
+                - logs:PutResourcePolicy
+                - logs:DescribeResourcePolicies
+                - logs:DescribeLogGroups
+              Resource: "*"
+      Logging:
+        Level: ERROR
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt RAGPipelineLogGroup.Arn
+      Tags:
+        Project: !Ref ProjectName
+        Stage: !Ref Stage
+
+  # ---------------------------------------------------
+  # CloudWatch Log Group for State Machine
+  # ---------------------------------------------------
+  RAGPipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/stepfunctions/${ProjectName}-${Stage}-pipeline"
+      RetentionInDays: 14
+
+  # ---------------------------------------------------
   # Ingestion Trigger
   # ---------------------------------------------------
   IngestionTriggerFunction:
@@ -372,14 +421,14 @@ Resources:
       Handler: index.handler
       Environment:
         Variables:
-          STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-${Stage}-pipeline"
+          STATE_MACHINE_ARN: !Ref RAGPipelineStateMachine
       Policies:
         - Version: "2012-10-17"
           Statement:
             - Effect: Allow
               Action:
                 - states:StartExecution
-              Resource: "*"
+              Resource: !Ref RAGPipelineStateMachine
       Events:
         S3Event:
           Type: S3
@@ -498,6 +547,8 @@ Resources:
       Environment:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+          PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -594,3 +645,11 @@ Outputs:
   DocumentsBucketName:
     Description: S3 Bucket Name
     Value: !Ref DocumentsBucket
+
+  StateMachineArn:
+    Description: RAG Pipeline State Machine ARN
+    Value: !Ref RAGPipelineStateMachine
+
+  StateMachineLogGroup:
+    Description: State Machine Log Group
+    Value: !Ref RAGPipelineLogGroup
