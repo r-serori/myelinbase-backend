@@ -46,11 +46,13 @@
         {
           "ErrorEquals": [
             "Lambda.ServiceException",
-            "Lambda.TooManyRequestsException"
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
         }
       ]
     },
@@ -77,11 +79,14 @@
         {
           "ErrorEquals": [
             "Lambda.ServiceException",
-            "Lambda.TooManyRequestsException"
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "States.TaskFailed"
           ],
-          "IntervalSeconds": 2,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
+          "IntervalSeconds": 5,
+          "MaxAttempts": 5,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
         }
       ]
     },
