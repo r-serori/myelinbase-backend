@@ -8,7 +8,7 @@ import {
   StartExecutionCommand as _StartExecutionCommand,
   StartExecutionCommandInput,
 } from "@aws-sdk/client-sfn";
-import { S3Event, S3EventRecord } from "aws-lambda";
+import { S3Event, S3EventRecord, SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
 
 // 型定義のためのインポート（実行時のインポートは動的importで行う）
@@ -88,6 +88,28 @@ describe("Trigger Function", () => {
     ],
   });
 
+  // SQSイベント作成ヘルパー
+  const createSQSEvent = (s3Event: S3Event): SQSEvent => ({
+    Records: [
+      {
+        messageId: "test-message-id",
+        receiptHandle: "test-receipt-handle",
+        body: JSON.stringify(s3Event),
+        attributes: {
+          ApproximateReceiveCount: "1",
+          SentTimestamp: "1234567890",
+          SenderId: "test-sender",
+          ApproximateFirstReceiveTimestamp: "1234567890",
+        },
+        messageAttributes: {},
+        md5OfBody: "test-md5",
+        eventSource: "aws:sqs",
+        eventSourceARN: "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+        awsRegion: "ap-northeast-1",
+      },
+    ],
+  });
+
   describe("Production Environment (STAGE != local)", () => {
     beforeEach(async () => {
       process.env.STAGE = "production";
@@ -106,7 +128,8 @@ describe("Trigger Function", () => {
       // 実装の正規表現 ^uploads\/([^/]+)\/([^/]+)$ にマッチするキー
       // uploads/{ownerId}/{documentId}
       const validKey = "uploads/user-123/doc-456";
-      const event = createS3Event(validKey);
+      const s3Event = createS3Event(validKey);
+      const event = createSQSEvent(s3Event);
 
       await handler(event);
 
@@ -131,7 +154,8 @@ describe("Trigger Function", () => {
 
       // "uploads/user-123/doc 789" -> エンコード
       const encodedKey = "uploads/user-123/doc%20789";
-      const event = createS3Event(encodedKey);
+      const s3Event = createS3Event(encodedKey);
+      const event = createSQSEvent(s3Event);
 
       await handler(event);
 
@@ -147,20 +171,31 @@ describe("Trigger Function", () => {
     it("should ignore keys that do not match the expected pattern", async () => {
       // 階層が深い場合（例: ファイル名がついている）は実装の正規表現にマッチしないため無視される
       const invalidKey = "uploads/user-123/doc-456/file.pdf";
-      const event = createS3Event(invalidKey);
+      const s3Event = createS3Event(invalidKey);
+      const event = createSQSEvent(s3Event);
 
       await handler(event);
 
       expect(sfnMock.calls()).toHaveLength(0);
     });
 
-    it("should throw error if Step Functions fails", async () => {
+    it("should return batchItemFailures if Step Functions fails", async () => {
       sfnMock.on(StartExecutionCommand).rejects(new Error("SFN Error"));
 
       const validKey = "uploads/user-123/doc-fail";
-      const event = createS3Event(validKey);
+      const s3Event = createS3Event(validKey);
+      const event = createSQSEvent(s3Event);
 
-      await expect(handler(event)).rejects.toThrow("SFN Error");
+      const result = await handler(event);
+
+      // エラーをスローせず、batchItemFailuresを返すことを確認
+      expect(result).toHaveProperty("batchItemFailures");
+
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(1);
+      expect(batchResponse.batchItemFailures[0].itemIdentifier).toBe(
+        "test-message-id"
+      );
     });
   });
 
