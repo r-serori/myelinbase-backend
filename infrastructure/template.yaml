@@ -476,6 +476,7 @@ Resources:
               Action:
                 - dynamodb:*
                 - s3:*
+                - secretsmanager:GetSecretValue
               Resource: "*"
       Events:
         GetDocuments:
