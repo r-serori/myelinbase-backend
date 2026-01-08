@@ -462,6 +462,7 @@ Resources:
       Environment:
         Variables:
           STATE_MACHINE_ARN: !Ref RAGPipelineStateMachine
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
       Policies:
         - Version: "2012-10-17"
           Statement:
