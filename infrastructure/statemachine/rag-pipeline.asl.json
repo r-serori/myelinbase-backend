@@ -1,6 +1,7 @@
 {
   "Comment": "RAG Ingestion Pipeline - Document processing workflow for Myelin Base",
   "StartAt": "UpdateStatusProcessing",
+  "TimeoutSeconds": 270,
   "States": {
     "UpdateStatusProcessing": {
       "Type": "Task",
@@ -38,6 +39,7 @@
     "ExtractAndChunk": {
       "Type": "Task",
       "Resource": "${DocProcessorFunctionArn}",
+      "TimeoutSeconds": 60,
       "Parameters": {
         "action": "extractAndChunk",
         "payload": {
@@ -63,16 +65,17 @@
             "Lambda.AWSLambdaException"
           ],
           "IntervalSeconds": 5,
-          "MaxAttempts": 6,
+          "MaxAttempts": 4,
           "BackoffRate": 2,
           "JitterStrategy": "FULL",
-          "Comment": "★ 変更: IntervalSeconds 2→5, MaxAttempts 3→6"
+          "Comment": "★ 変更: MaxAttempts 6→4 (タイムアウト内に収まるように調整)"
         }
       ]
     },
     "EmbedAndUpsert": {
       "Type": "Task",
       "Resource": "${DocProcessorFunctionArn}",
+      "TimeoutSeconds": 180,
       "Parameters": {
         "action": "embedAndUpsert",
         "payload": {
@@ -98,10 +101,10 @@
             "States.TaskFailed"
           ],
           "IntervalSeconds": 10,
-          "MaxAttempts": 8,
+          "MaxAttempts": 4,
           "BackoffRate": 2,
           "JitterStrategy": "FULL",
-          "Comment": "★ 変更: IntervalSeconds 5→10, MaxAttempts 5→8"
+          "Comment": "★ 変更: MaxAttempts 8→4 (タイムアウト内に収まるように調整)"
         }
       ]
     },
