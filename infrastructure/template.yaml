@@ -31,7 +31,7 @@ Parameters:
 
   PineconeApiKeyParameterName:
     Type: String
-    Default: /myelinbase/pinecone-api-key
+    Default: /myelinbase/dev/pinecone-api-key
     Description: SSM Parameter Store name for Pinecone API Key
 
   PineconeIndexName:

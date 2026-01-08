@@ -22,7 +22,7 @@ Parameters:
 
   PineconeApiKeyParameterName:
     Type: String
-    Default: /myelinbase/pinecone-api-key
+    Default: /myelinbase/dev/pinecone-api-key
   PineconeIndexName:
     Type: String
     Default: myelinbase-documents
