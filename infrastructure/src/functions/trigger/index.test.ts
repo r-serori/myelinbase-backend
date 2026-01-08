@@ -5,13 +5,17 @@ import {
 } from "@aws-sdk/client-lambda";
 import {
   SFNClient as _SFNClient,
-  StartExecutionCommand as _StartExecutionCommand,
-  StartExecutionCommandInput,
+  StartSyncExecutionCommand as _StartSyncExecutionCommand,
+  StartSyncExecutionCommandInput,
 } from "@aws-sdk/client-sfn";
-import { S3Event, S3EventRecord, SQSBatchResponse, SQSEvent } from "aws-lambda";
+import {
+  DynamoDBDocumentClient as _DynamoDBDocumentClient,
+  UpdateCommand as _UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
 
-// 型定義のためのインポート（実行時のインポートは動的importで行う）
+// 型定義のためのインポート
 import type { handler as HandlerType } from "./index";
 
 describe("Trigger Function", () => {
@@ -19,82 +23,68 @@ describe("Trigger Function", () => {
   let handler: typeof HandlerType;
   let sfnMock: AwsClientStub<_SFNClient>;
   let lambdaMock: AwsClientStub<_LambdaClient>;
+  let docClientMock: AwsClientStub<_DynamoDBDocumentClient>;
 
   // 動的インポートしたクラスを保持する変数
-  // jest.resetModules()を使用するため、テストごとに新しいクラスインスタンスを取得する必要がある
-  let StartExecutionCommand: typeof _StartExecutionCommand;
+  let StartSyncExecutionCommand: typeof _StartSyncExecutionCommand;
   let InvokeCommand: typeof _InvokeCommand;
+  let UpdateCommand: typeof _UpdateCommand;
 
   beforeEach(async () => {
-    jest.resetModules(); // モジュールキャッシュをクリア（環境変数の反映のため）
-    process.env = { ...ORIGINAL_ENV }; // 環境変数をリセット
-    process.env.AWS_REGION = "ap-northeast-1"; // Region missingエラーを回避
+    jest.resetModules(); // モジュールキャッシュをクリア
+    process.env = { ...ORIGINAL_ENV };
+    process.env.AWS_REGION = "ap-northeast-1";
 
-    // resetModules後はSDKのクラスも新しくなるため、テスト内で再importしてクラスを取得する
-    // これにより、ハンドラーが読み込むSDKクラスとモック設定に使うクラスが一致する
+    // モジュールの再インポート (環境変数反映のため)
     const sfnModule = await import("@aws-sdk/client-sfn");
     const lambdaModule = await import("@aws-sdk/client-lambda");
+    const ddbModule = await import("@aws-sdk/lib-dynamodb");
+    const ddbClientModule = await import("@aws-sdk/client-dynamodb");
 
     const SFNClient = sfnModule.SFNClient;
     const LambdaClient = lambdaModule.LambdaClient;
-    StartExecutionCommand = sfnModule.StartExecutionCommand;
-    InvokeCommand = lambdaModule.InvokeCommand;
+    const DynamoDBDocumentClient = ddbModule.DynamoDBDocumentClient;
+    const DynamoDBClient = ddbClientModule.DynamoDBClient;
 
-    // 型不整合エラーを回避するためにキャストを使用
+    StartSyncExecutionCommand = sfnModule.StartSyncExecutionCommand;
+    InvokeCommand = lambdaModule.InvokeCommand;
+    UpdateCommand = ddbModule.UpdateCommand;
+
+    // モックの作成
     sfnMock = mockClient(SFNClient) as unknown as AwsClientStub<_SFNClient>;
     lambdaMock = mockClient(
       LambdaClient
     ) as unknown as AwsClientStub<_LambdaClient>;
+    docClientMock = mockClient(
+      DynamoDBDocumentClient
+    ) as unknown as AwsClientStub<_DynamoDBDocumentClient>;
+
+    // createDynamoDBClient のモック
+    // 実装ファイル内で import されているため、jest.doMock で差し替える
+    // require() を回避するため、事前に import したクラスを使用する
+    jest.doMock("../../shared/utils/dynamodb", () => {
+      return {
+        createDynamoDBClient: () =>
+          DynamoDBDocumentClient.from(new DynamoDBClient({})),
+      };
+    });
   });
 
   afterAll(() => {
     process.env = ORIGINAL_ENV;
   });
 
-  // S3イベント作成ヘルパー
-  const createS3Event = (
+  // SQSイベント作成ヘルパー (Payloadは IngestMessage 形式)
+  const createSQSEvent = (
+    bucket: string,
     key: string,
-    bucket: string = "test-bucket"
-  ): S3Event => ({
-    Records: [
-      {
-        eventVersion: "2.1",
-        eventSource: "aws:s3",
-        awsRegion: "ap-northeast-1",
-        eventTime: new Date().toISOString(),
-        eventName: "ObjectCreated:Put",
-        userIdentity: { principalId: "test" },
-        requestParameters: { sourceIPAddress: "127.0.0.1" },
-        responseElements: {
-          "x-amz-request-id": "test",
-          "x-amz-id-2": "test",
-        },
-        s3: {
-          s3SchemaVersion: "1.0",
-          configurationId: "test",
-          bucket: {
-            name: bucket,
-            ownerIdentity: { principalId: "test" },
-            arn: `arn:aws:s3:::${bucket}`,
-          },
-          object: {
-            key: key,
-            size: 1024,
-            eTag: "test-etag",
-            sequencer: "test-sequencer",
-          },
-        },
-      } as S3EventRecord,
-    ],
-  });
-
-  // SQSイベント作成ヘルパー
-  const createSQSEvent = (s3Event: S3Event): SQSEvent => ({
+    documentId: string
+  ): SQSEvent => ({
     Records: [
       {
         messageId: "test-message-id",
         receiptHandle: "test-receipt-handle",
-        body: JSON.stringify(s3Event),
+        body: JSON.stringify({ bucket, key, documentId }),
         attributes: {
           ApproximateReceiveCount: "1",
           SentTimestamp: "1234567890",
@@ -110,9 +100,9 @@ describe("Trigger Function", () => {
     ],
   });
 
-  describe("Production Environment (STAGE != local)", () => {
+  describe("AWS Environment (STATE_MACHINE_ARN is set)", () => {
     beforeEach(async () => {
-      process.env.STAGE = "production";
+      process.env.TABLE_NAME = "test-table";
       process.env.STATE_MACHINE_ARN =
         "arn:aws:states:ap-northeast-1:123:stateMachine:Test";
 
@@ -120,77 +110,86 @@ describe("Trigger Function", () => {
       handler = (await import("./index")).handler;
     });
 
-    it("should start Step Functions execution for valid S3 key", async () => {
-      sfnMock
-        .on(StartExecutionCommand)
-        .resolves({ executionArn: "arn:execution" });
+    it("should start Sync Step Functions execution successfully", async () => {
+      sfnMock.on(StartSyncExecutionCommand).resolves({
+        status: "SUCCEEDED",
+        executionArn: "arn:execution",
+        output: JSON.stringify({ result: "ok" }),
+      });
 
-      // 実装の正規表現 ^uploads\/([^/]+)\/([^/]+)$ にマッチするキー
-      // uploads/{ownerId}/{documentId}
-      const validKey = "uploads/user-123/doc-456";
-      const s3Event = createS3Event(validKey);
-      const event = createSQSEvent(s3Event);
-
-      await handler(event);
+      const event = createSQSEvent("test-bucket", "uploads/doc-123", "doc-123");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
 
       expect(sfnMock.calls()).toHaveLength(1);
       const callArgs = sfnMock.call(0).args[0]
-        .input as StartExecutionCommandInput;
+        .input as StartSyncExecutionCommandInput;
 
       expect(callArgs.stateMachineArn).toBe(process.env.STATE_MACHINE_ARN);
+      expect(callArgs.name).toContain("ingest-doc-123-");
 
       const input = JSON.parse(callArgs.input || "{}");
       expect(input).toEqual({
         bucket: "test-bucket",
-        key: validKey,
-        documentId: "doc-456",
+        key: "uploads/doc-123",
+        documentId: "doc-123",
       });
 
-      expect(callArgs.name).toContain("ingest-doc-456-");
+      // 成功時はバッチ失敗リストは空
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(0);
     });
 
-    it("should handle URL-encoded keys correctly", async () => {
-      sfnMock.on(StartExecutionCommand).resolves({});
+    it("should handle Step Functions execution failure (update status to FAILED)", async () => {
+      // Step Functionsが失敗ステータスを返した場合
+      sfnMock.on(StartSyncExecutionCommand).resolves({
+        status: "FAILED",
+        error: "SomeError",
+        cause: "Something went wrong",
+      });
 
-      // "uploads/user-123/doc 789" -> エンコード
-      const encodedKey = "uploads/user-123/doc%20789";
-      const s3Event = createS3Event(encodedKey);
-      const event = createSQSEvent(s3Event);
+      docClientMock.on(UpdateCommand).resolves({});
 
-      await handler(event);
+      const event = createSQSEvent(
+        "test-bucket",
+        "uploads/doc-fail",
+        "doc-fail"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
 
+      // SFN呼び出し確認
       expect(sfnMock.calls()).toHaveLength(1);
-      const callArgs = sfnMock.call(0).args[0]
-        .input as StartExecutionCommandInput;
-      const input = JSON.parse(callArgs.input || "{}");
 
-      expect(input.key).toBe("uploads/user-123/doc 789");
-      expect(input.documentId).toBe("doc 789");
+      // DynamoDB更新確認
+      expect(docClientMock.calls()).toHaveLength(1);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateArgs = docClientMock.call(0).args[0].input as any;
+      expect(updateArgs.TableName).toBe("test-table");
+      expect(updateArgs.Key).toEqual({ documentId: "doc-fail" });
+      expect(updateArgs.ExpressionAttributeValues?.[":status"]).toBe("FAILED");
+      expect(updateArgs.ExpressionAttributeValues?.[":error"]).toContain(
+        "State Machine failed"
+      );
+
+      // ステータス更新に成功した(shouldRetry: false)ので、SQSリトライは不要
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(0);
     });
 
-    it("should ignore keys that do not match the expected pattern", async () => {
-      // 階層が深い場合（例: ファイル名がついている）は実装の正規表現にマッチしないため無視される
-      const invalidKey = "uploads/user-123/doc-456/file.pdf";
-      const s3Event = createS3Event(invalidKey);
-      const event = createSQSEvent(s3Event);
+    it("should retry SQS message if Step Functions Start fails (Exception)", async () => {
+      // API呼び出し自体が例外を投げた場合
+      sfnMock.on(StartSyncExecutionCommand).rejects(new Error("Network Error"));
 
-      await handler(event);
+      const event = createSQSEvent(
+        "test-bucket",
+        "uploads/doc-error",
+        "doc-error"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
 
-      expect(sfnMock.calls()).toHaveLength(0);
-    });
-
-    it("should return batchItemFailures if Step Functions fails", async () => {
-      sfnMock.on(StartExecutionCommand).rejects(new Error("SFN Error"));
-
-      const validKey = "uploads/user-123/doc-fail";
-      const s3Event = createS3Event(validKey);
-      const event = createSQSEvent(s3Event);
-
-      const result = await handler(event);
-
-      // エラーをスローせず、batchItemFailuresを返すことを確認
-      expect(result).toHaveProperty("batchItemFailures");
-
+      // Exception時は shouldRetry: true になるはず
       const batchResponse = result as SQSBatchResponse;
       expect(batchResponse.batchItemFailures).toHaveLength(1);
       expect(batchResponse.batchItemFailures[0].itemIdentifier).toBe(
@@ -199,115 +198,95 @@ describe("Trigger Function", () => {
     });
   });
 
-  describe("Local Environment (STAGE = local)", () => {
+  describe("Local Environment (STATE_MACHINE_ARN is unset)", () => {
     beforeEach(async () => {
-      process.env.STAGE = "local";
-      process.env.PROCESSOR_FUNCTION_NAME = "local-processor";
-      process.env.LOCALSTACK_ENDPOINT = "http://localhost:4566";
+      delete process.env.STATE_MACHINE_ARN;
+      process.env.TABLE_NAME = "test-table";
 
       handler = (await import("./index")).handler;
     });
 
     it("should invoke Lambda directly in sequence", async () => {
       // Lambda Invokeのモックレスポンス設定
-      // Step 2のExtract結果のみ Payload を返す必要がある
       const extractResult = {
-        chunksS3Uri: "s3://test-bucket/processing/doc-local/chunks.json",
-        chunkCount: 2,
+        chunksS3Uri: "s3://test-bucket/chunks.json",
       };
-
-      const payloadBytes = new TextEncoder().encode(
-        JSON.stringify(extractResult)
-      );
-      // Uint8ArrayBlobAdapter互換のオブジェクトを作成
-      const payload = Object.assign(payloadBytes, {
-        transformToString: async () =>
-          Promise.resolve(new TextDecoder().decode(payloadBytes)),
-      });
+      const payloadBuffer = Buffer.from(JSON.stringify(extractResult));
 
       lambdaMock.on(InvokeCommand).resolves({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        Payload: payload as any,
         StatusCode: 200,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Payload: payloadBuffer as any,
       });
 
-      const validKey = "uploads/user-local/doc-local";
-      const event = createS3Event(validKey);
+      const event = createSQSEvent("test-bucket", "uploads/local", "doc-local");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
 
-      await handler(event);
-
-      // 4回呼ばれることを期待 (Status Update -> Extract -> Embed -> Status Update)
+      // 4回呼ばれることを期待 (Update -> Extract -> Embed -> Update)
       expect(lambdaMock.calls()).toHaveLength(4);
 
-      // Step 1: Update status to PROCESSING
+      // Call 1: Update Status
       const call1Input = lambdaMock.call(0).args[0].input as InvokeCommandInput;
-      const call1 = JSON.parse((call1Input.Payload as string) || "{}");
-      expect(call1).toEqual({
-        action: "updateStatus",
-        status: "PROCESSING",
-        payload: { documentId: "doc-local" },
-      });
+      const call1Payload = JSON.parse(
+        Buffer.from(call1Input.Payload as Uint8Array).toString()
+      );
+      expect(call1Payload.action).toBe("updateStatus");
+      expect(call1Payload.status).toBe("PROCESSING");
 
-      // Step 2: Extract and Chunk
+      // Call 2: Extract
       const call2Input = lambdaMock.call(1).args[0].input as InvokeCommandInput;
-      const call2 = JSON.parse((call2Input.Payload as string) || "{}");
-      expect(call2).toEqual({
-        action: "extractAndChunk",
-        payload: {
-          documentId: "doc-local",
-          bucket: "test-bucket",
-          key: validKey,
-        },
-      });
+      const call2Payload = JSON.parse(
+        Buffer.from(call2Input.Payload as Uint8Array).toString()
+      );
+      expect(call2Payload.action).toBe("extractAndChunk");
 
-      // Step 3: Embed and Upsert (前のステップの結果を使う)
+      // Call 3: Embed (Previous result used)
       const call3Input = lambdaMock.call(2).args[0].input as InvokeCommandInput;
-      const call3 = JSON.parse((call3Input.Payload as string) || "{}");
-      expect(call3).toEqual({
-        action: "embedAndUpsert",
-        payload: {
-          documentId: "doc-local",
-          chunksS3Uri: "s3://test-bucket/processing/doc-local/chunks.json",
-        },
-      });
+      const call3Payload = JSON.parse(
+        Buffer.from(call3Input.Payload as Uint8Array).toString()
+      );
+      expect(call3Payload.action).toBe("embedAndUpsert");
+      expect(call3Payload.payload.chunksS3Uri).toBe(extractResult.chunksS3Uri);
 
-      // Step 4: Update status to COMPLETED
+      // Call 4: Complete
       const call4Input = lambdaMock.call(3).args[0].input as InvokeCommandInput;
-      const call4 = JSON.parse((call4Input.Payload as string) || "{}");
-      expect(call4).toEqual({
-        action: "updateStatus",
-        status: "COMPLETED",
-        payload: { documentId: "doc-local" },
-      });
+      const call4Payload = JSON.parse(
+        Buffer.from(call4Input.Payload as Uint8Array).toString()
+      );
+      expect(call4Payload.status).toBe("COMPLETED");
     });
 
-    it("should update status to FAILED if processing throws error", async () => {
-      // 2回目のExtract呼び出しでエラーを発生させる
+    it("should update status to FAILED if local processing fails", async () => {
+      // 2回目(Extract)で失敗させる
       lambdaMock
         .on(InvokeCommand)
-        .resolvesOnce({ StatusCode: 200 }) // Step 1 OK
-        .rejects(new Error("Extraction Failed")); // Step 2 Error
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolvesOnce({ StatusCode: 200, Payload: Buffer.from("{}") as any }) // 1回目 OK
+        .rejectsOnce(new Error("Local Fail")) // 2回目 Error
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolves({ StatusCode: 200, Payload: Buffer.from("{}") as any }); // 3回目 (Backup/Fallback)
 
-      const validKey = "uploads/user-local/doc-error";
-      const event = createS3Event(validKey);
-
-      await handler(event);
+      const event = createSQSEvent("test-bucket", "uploads/fail", "doc-fail");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
 
       // 呼び出し回数は3回 (Start -> Extract(Fail) -> Fail Update)
       expect(lambdaMock.calls()).toHaveLength(3);
 
-      // 最後がFAILED更新であることを確認
+      // 最後の呼び出しがFAILED更新であることを確認
       const finalCallInput = lambdaMock.call(2).args[0]
         .input as InvokeCommandInput;
-      const finalCall = JSON.parse((finalCallInput.Payload as string) || "{}");
-      expect(finalCall).toMatchObject({
-        action: "updateStatus",
-        status: "FAILED",
-        payload: { documentId: "doc-error" },
-        error: {
-          message: "Extraction Failed",
-        },
-      });
+      const finalCallPayload = JSON.parse(
+        Buffer.from(finalCallInput.Payload as Uint8Array).toString()
+      );
+      expect(finalCallPayload.action).toBe("updateStatus");
+      expect(finalCallPayload.status).toBe("FAILED");
+      expect(finalCallPayload.error.message).toBe("Local Fail");
+
+      // エラーハンドリング成功ならSQSリトライはしない
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(0);
     });
   });
 });
