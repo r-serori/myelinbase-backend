@@ -17,7 +17,6 @@ export async function extractTextFromS3(
   key: string,
   contentType: string
 ): Promise<string> {
-  // S3からファイル取得
   const command = new GetObjectCommand({ Bucket: bucket, Key: key });
   const response = await s3Client.send(command);
 
@@ -25,18 +24,19 @@ export async function extractTextFromS3(
     throw new Error("Empty S3 object");
   }
 
-  // StreamをBufferに変換
   const buffer = await streamToBuffer(response.Body as Readable);
 
-  // ファイルタイプに応じてテキスト抽出
+  let text: string;
   if (contentType === "application/pdf") {
-    return await extractTextFromPdf(buffer);
+    text = await extractTextFromPdf(buffer);
   } else if (TEXT_TYPES.includes(contentType)) {
-    return buffer.toString("utf-8");
+    text = buffer.toString("utf-8");
   } else {
-    // その他のファイルタイプは未対応
     throw new Error(`Unsupported content type: ${contentType}`);
   }
+
+  // 無効なUnicode文字を除去してから返す
+  return sanitizeText(text);
 }
 
 /**
@@ -193,4 +193,26 @@ export function createDocumentMetadata(
   }
 
   return meta;
+}
+
+/**
+ * 無効なUnicode文字（孤立したサロゲートペアなど）を除去
+ * Pineconeは無効なUnicodeコードポイントを受け付けないため
+ */
+export function sanitizeText(text: string): string {
+  // 孤立したサロゲートペアを除去
+  // High surrogate: \uD800-\uDBFF
+  // Low surrogate: \uDC00-\uDFFF
+  // 正しいペアは High + Low の組み合わせ
+  // 孤立したものは無効なので除去する
+  return (
+    text
+      // 孤立したhigh surrogate（後ろにlow surrogateがない）を除去
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+      // 孤立したlow surrogate（前にhigh surrogateがない）を除去
+      .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+      // その他の制御文字（NULL、SUB等）を除去（オプション）
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+  );
 }

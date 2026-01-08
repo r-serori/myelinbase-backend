@@ -7,6 +7,7 @@ import {
   createDocumentMetadata,
   createSmallToBigChunks,
   extractTextFromS3,
+  sanitizeText,
   splitTextIntoChunks,
 } from "./text-processing";
 
@@ -51,6 +52,61 @@ describe("Text Processing Utils", () => {
   beforeEach(() => {
     s3Mock.reset();
     jest.clearAllMocks();
+  });
+
+  describe("sanitizeText", () => {
+    it("should remove orphan high surrogates", () => {
+      // 孤立したhigh surrogate (後ろにlow surrogateがない)
+      const text = "Hello\uD800World";
+      const result = sanitizeText(text);
+      expect(result).toBe("HelloWorld");
+    });
+
+    it("should remove orphan low surrogates", () => {
+      // 孤立したlow surrogate (前にhigh surrogateがない) - これがエラーの原因
+      const text = "Hello\uDC1BWorld";
+      const result = sanitizeText(text);
+      expect(result).toBe("HelloWorld");
+    });
+
+    it("should preserve valid surrogate pairs (emoji)", () => {
+      // 正しいサロゲートペア（絵文字）は保持
+      const text = "Hello 😀 World"; // 😀 = \uD83D\uDE00
+      const result = sanitizeText(text);
+      expect(result).toBe("Hello 😀 World");
+    });
+
+    it("should remove control characters", () => {
+      const text = "Hello\x00\x0BWorld";
+      const result = sanitizeText(text);
+      expect(result).toBe("HelloWorld");
+    });
+
+    it("should handle mixed invalid characters", () => {
+      // 複数の無効文字が混在
+      const text = "Start\uD800\x00\uDC1BEnd";
+      const result = sanitizeText(text);
+      expect(result).toBe("StartEnd");
+    });
+
+    it("should handle HTML with invalid unicode", () => {
+      // 実際のエラーケースに近いパターン
+      const text = "<td>\uDC1B</a></td>\n\t";
+      const result = sanitizeText(text);
+      expect(result).toBe("<td></a></td>\n\t");
+    });
+
+    it("should return empty string for only invalid characters", () => {
+      const text = "\uDC1B\uD800\x00";
+      const result = sanitizeText(text);
+      expect(result).toBe("");
+    });
+
+    it("should preserve normal Japanese text", () => {
+      const text = "日本語テキスト";
+      const result = sanitizeText(text);
+      expect(result).toBe("日本語テキスト");
+    });
   });
 
   describe("extractTextFromS3", () => {
