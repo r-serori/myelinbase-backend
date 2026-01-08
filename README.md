@@ -142,15 +142,15 @@ npm run deploy:prod
 
 ### 必須環境変数 (AWS)
 
-| 変数名                         | 説明                            |
-| ------------------------------ | ------------------------------- |
-| `STAGE`                        | 環境 (local/dev/prod)           |
-| `TABLE_NAME`                   | DynamoDB ドキュメントテーブル名 |
-| `BUCKET_NAME`                  | S3 バケット名                   |
-| `PINECONE_API_KEY_SECRET_NAME` | Secrets Manager シークレット名  |
-| `PINECONE_INDEX_NAME`          | Pinecone インデックス名         |
-| `CHAT_MODEL_ID`                | Bedrock チャットモデルID        |
-| `EMBEDDING_MODEL_ID`           | Bedrock エンベディングモデルID  |
+| 変数名                            | 説明                             |
+| --------------------------------- | -------------------------------- |
+| `STAGE`                           | 環境 (local/dev/prod)            |
+| `TABLE_NAME`                      | DynamoDB ドキュメントテーブル名  |
+| `BUCKET_NAME`                     | S3 バケット名                    |
+| `PINECONE_API_KEY_PARAMETER_NAME` | SSM Parameter Store パラメータ名 |
+| `PINECONE_INDEX_NAME`             | Pinecone インデックス名          |
+| `CHAT_MODEL_ID`                   | Bedrock チャットモデルID         |
+| `EMBEDDING_MODEL_ID`              | Bedrock エンベディングモデルID   |
 
 ### ローカル開発用環境変数
 

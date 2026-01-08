@@ -216,7 +216,7 @@ COMPLETED → DELETING → DELETED (物理削除)
 | `UseBedrock`               | `true`                                   | Bedrock使用フラグ              |
 | `ChatModelId`              | `anthropic.claude-3-haiku-20240307-v1:0` | チャットモデル                 |
 | `EmbeddingModelId`         | `amazon.titan-embed-text-v1`             | エンベディングモデル           |
-| `PineconeApiKeySecretName` | `pinecone-api-key`                       | Secrets Manager シークレット名 |
+| `PineconeApiKeyParameterName` | `/myelinbase/pinecone-api-key`          | SSM Parameter Store パラメータ名 |
 | `PineconeIndexName`        | `myelinbase-documents`                   | Pinecone インデックス名        |
 
 ### 本番環境用パラメータ

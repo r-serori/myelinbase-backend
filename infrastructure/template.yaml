@@ -29,10 +29,10 @@ Parameters:
       - "true"
       - "false"
 
-  PineconeApiKeySecretName:
+  PineconeApiKeyParameterName:
     Type: String
-    Default: pinecone-api-key
-    Description: SecretsManager secret name for Pinecone API Key
+    Default: /myelinbase/pinecone-api-key
+    Description: SSM Parameter Store name for Pinecone API Key
 
   PineconeIndexName:
     Type: String
@@ -64,7 +64,7 @@ Globals:
         ALLOWED_ORIGINS: !Ref FrontendUrl
         CHAT_MODEL_ID: !Ref ChatModelId
         EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
-        PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
+        PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
         PINECONE_INDEX_NAME: !Ref PineconeIndexName
         USE_BEDROCK: !Ref UseBedrock
 
@@ -299,7 +299,7 @@ Resources:
               Action:
                 - bedrock:InvokeModel
                 - bedrock:InvokeModelWithResponseStream
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
       Events:
         Chat:
@@ -375,7 +375,7 @@ Resources:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
           TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
           PINECONE_INDEX_NAME: !Ref PineconeIndexName
-          PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
+          PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -384,7 +384,7 @@ Resources:
                 - dynamodb:*
                 - s3:*
                 - bedrock:InvokeModel
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
     Metadata:
       BuildMethod: esbuild
@@ -523,7 +523,7 @@ Resources:
               Action:
                 - dynamodb:*
                 - s3:*
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
       Events:
         GetDocuments:
@@ -596,7 +596,7 @@ Resources:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
           PINECONE_INDEX_NAME: !Ref PineconeIndexName
-          PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
+          PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
       Policies:
         - Version: "2012-10-17"
           Statement:
@@ -604,7 +604,7 @@ Resources:
               Action:
                 - dynamodb:*
                 - s3:*
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
       Events:
         DynamoDBStream:

@@ -1,10 +1,7 @@
 // infrastructure/src/shared/clients/pinecone.ts
 // Pinecone クライアントユーティリティ
 
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
 
 import { ErrorCode } from "../types/error-code";
@@ -15,25 +12,25 @@ import {
 } from "../types/pinecone";
 import { AppError } from "../utils/api-handler";
 
-const secretsClient = new SecretsManagerClient({});
+const ssmClient = new SSMClient({});
 let cachedPineconeApiKey: string | null = null;
 
 const pineconeIndexName = process.env.PINECONE_INDEX_NAME!;
 
 /**
- * Secrets ManagerからPinecone APIキーを取得 (キャッシュ付き)
+ * SSM Parameter StoreからPinecone APIキーを取得 (キャッシュ付き)
  */
 export async function getPineconeApiKey(): Promise<string> {
   if (cachedPineconeApiKey) return cachedPineconeApiKey;
 
-  const response = await secretsClient.send(
-    new GetSecretValueCommand({
-      SecretId: process.env.PINECONE_API_KEY_SECRET_NAME,
+  const response = await ssmClient.send(
+    new GetParameterCommand({
+      Name: process.env.PINECONE_API_KEY_PARAMETER_NAME,
+      WithDecryption: true,
     })
   );
 
-  const secret = JSON.parse(response.SecretString || "{}");
-  const apiKey = secret.apiKey || secret.PINECONE_API_KEY;
+  const apiKey = response.Parameter?.Value;
 
   cachedPineconeApiKey = apiKey || null;
   if (!cachedPineconeApiKey) {

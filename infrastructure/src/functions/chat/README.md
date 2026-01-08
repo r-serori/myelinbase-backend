@@ -24,7 +24,7 @@
 | `USE_MOCK_BEDROCK`             |  -   | `false`                                  | モック Bedrock を使用（ローカル用） |
 | `STAGE`                        |  -   | `local`                                  | 環境（local/dev/prod）              |
 | `ALLOWED_ORIGINS`              |  -   | -                                        | CORS 許可オリジン                   |
-| `PINECONE_API_KEY_SECRET_NAME` |  -   | -                                        | Pinecone API キーのシークレット名   |
+| `PINECONE_API_KEY_PARAMETER_NAME` |  -   | -                                        | Pinecone API キーのSSMパラメータ名   |
 | `PINECONE_INDEX_NAME`          |  -   | -                                        | Pinecone インデックス名             |
 
 ## API エンドポイント

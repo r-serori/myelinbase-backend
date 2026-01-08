@@ -37,7 +37,7 @@ Events:
 | ------------------------------ | :--: | ------------------------------- |
 | `TABLE_NAME`                   |  ✅  | Documents DynamoDB テーブル名   |
 | `BUCKET_NAME`                  |  ✅  | Documents S3 バケット名         |
-| `PINECONE_API_KEY_SECRET_NAME` |  ✅  | Secrets Manager シークレット名  |
+| `PINECONE_API_KEY_PARAMETER_NAME` |  ✅  | SSM Parameter Store パラメータ名  |
 | `PINECONE_INDEX_NAME`          |  ✅  | Pinecone インデックス名         |
 | `S3_ENDPOINT`                  |  -   | S3 エンドポイント（ローカル用） |
 

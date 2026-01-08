@@ -20,9 +20,9 @@ Parameters:
     Type: String
     Default: "false"
 
-  PineconeApiKeySecretName:
+  PineconeApiKeyParameterName:
     Type: String
-    Default: pinecone-api-key
+    Default: /myelinbase/pinecone-api-key
   PineconeIndexName:
     Type: String
     Default: myelinbase-documents
@@ -64,7 +64,7 @@ Globals:
         ALLOWED_ORIGINS: !Ref FrontendUrl
         CHAT_MODEL_ID: !Ref ChatModelId
         EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
-        PINECONE_API_KEY_SECRET_NAME: !Ref PineconeApiKeySecretName
+        PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
         PINECONE_INDEX_NAME: !Ref PineconeIndexName
         USE_BEDROCK: !Ref UseBedrock
 
@@ -126,7 +126,7 @@ Resources:
               Action:
                 - bedrock:InvokeModel
                 - bedrock:InvokeModelWithResponseStream
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
       Events:
         Chat:
@@ -208,7 +208,7 @@ Resources:
                 - dynamodb:*
                 - s3:*
                 - bedrock:InvokeModel
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
     Metadata:
       BuildMethod: esbuild
@@ -297,7 +297,7 @@ Resources:
             - Effect: Allow
               Action:
                 - s3:DeleteObject
-                - secretsmanager:GetSecretValue
+                - ssm:GetParameter
               Resource: "*"
     Metadata:
       BuildMethod: esbuild
