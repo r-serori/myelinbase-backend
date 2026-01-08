@@ -1,10 +1,7 @@
 // 環境変数の設定
-process.env.PINECONE_SECRET_NAME = "test-pinecone-secret";
+process.env.PINECONE_API_KEY_PARAMETER_NAME = "/test/pinecone-api-key";
 
-import {
-  GetSecretValueCommand,
-  SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { Pinecone } from "@pinecone-database/pinecone";
 import { mockClient } from "aws-sdk-client-mock";
 
@@ -20,8 +17,8 @@ import {
 
 // --- Mocks Setup ---
 
-// 1. AWS Secrets Manager Mock
-const secretsMock = mockClient(SecretsManagerClient);
+// 1. AWS SSM Mock
+const ssmMock = mockClient(SSMClient);
 
 // 2. Pinecone Mock
 // index() メソッドが返すオブジェクト（操作用メソッドを持つ）を定義
@@ -45,7 +42,7 @@ jest.mock("@pinecone-database/pinecone", () => {
 
 describe("Pinecone Client Utility", () => {
   beforeEach(() => {
-    secretsMock.reset();
+    ssmMock.reset();
     jest.clearAllMocks();
 
     // モックのデフォルト戻り値設定
@@ -59,22 +56,22 @@ describe("Pinecone Client Utility", () => {
   // getPineconeApiKey
   // ==========================================
   describe("getPineconeApiKey", () => {
-    it("should fetch API key from Secrets Manager and cache it", async () => {
-      // 1回目の呼び出し: Secrets Managerから取得
-      secretsMock.on(GetSecretValueCommand).resolves({
-        SecretString: JSON.stringify({ apiKey: "test-api-key" }),
+    it("should fetch API key from SSM Parameter Store and cache it", async () => {
+      // 1回目の呼び出し: SSM Parameter Storeから取得
+      ssmMock.on(GetParameterCommand).resolves({
+        Parameter: { Value: "test-api-key" },
       });
 
       // 注: モジュールレベルの変数(cachedPineconeApiKey)の状態に依存するため、
       // テストの実行順序によってはキャッシュが残っている可能性があります。
       const apiKey1 = await getPineconeApiKey();
       expect(apiKey1).toBe("test-api-key");
-      expect(secretsMock.calls()).toHaveLength(1);
+      expect(ssmMock.calls()).toHaveLength(1);
 
       // 2回目の呼び出し: キャッシュが使われるはず
       const apiKey2 = await getPineconeApiKey();
       expect(apiKey2).toBe("test-api-key");
-      expect(secretsMock.calls()).toHaveLength(1); // 呼び出し回数が増えていないこと
+      expect(ssmMock.calls()).toHaveLength(1); // 呼び出し回数が増えていないこと
     });
   });
 
