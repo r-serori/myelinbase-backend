@@ -224,6 +224,43 @@ Resources:
         Enabled: true
 
   # ---------------------------------------------------
+  # SQS Queue for Document Ingestion
+  # ---------------------------------------------------
+  DocumentIngestionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-${Stage}-ingestion-queue"
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 86400
+      ReceiveMessageWaitTimeSeconds: 20
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DocumentIngestionDLQ.Arn
+        maxReceiveCount: 3
+
+  DocumentIngestionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-${Stage}-ingestion-dlq"
+      MessageRetentionPeriod: 1209600
+
+  DocumentIngestionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref DocumentIngestionQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt DocumentIngestionQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+
+  # ---------------------------------------------------
   # Chat Agent API
   # ---------------------------------------------------
   ChatAgentFunction:
@@ -594,6 +631,7 @@ Resources:
   # ---------------------------------------------------
   DocumentsBucket:
     Type: AWS::S3::Bucket
+    DependsOn: DocumentIngestionQueuePolicy
     Properties:
       BucketName: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
       CorsConfiguration:
@@ -616,18 +654,15 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-
-  # ---------------------------------------------------
-  # S3 -> Lambda Permission
-  # ---------------------------------------------------
-  IngestionTriggerPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref IngestionTriggerFunction
-      Action: lambda:InvokeFunction
-      Principal: s3.amazonaws.com
-      SourceAccount: !Ref AWS::AccountId
-      SourceArn: !GetAtt DocumentsBucket.Arn
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt DocumentIngestionQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
 
 # ============================================
 # Outputs
