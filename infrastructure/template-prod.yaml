@@ -459,6 +459,7 @@ Resources:
     Type: AWS::Serverless::StateMachine
     Properties:
       Name: !Sub "${ProjectName}-${Stage}-pipeline"
+      Type: EXPRESS
       DefinitionUri: statemachine/rag-pipeline.asl.json
       DefinitionSubstitutions:
         DocProcessorFunctionArn: !GetAtt DocProcessorFunction.Arn
@@ -519,6 +520,7 @@ Resources:
             - Effect: Allow
               Action:
                 - states:StartExecution
+                - states:StartSyncExecution
               Resource: !Ref RAGPipelineStateMachine
             - Effect: Allow
               Action:

@@ -2,7 +2,7 @@
 // SQS経由でS3イベントを受信し、Step Functionsを起動する
 
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
+import { SFNClient, StartSyncExecutionCommand } from "@aws-sdk/client-sfn";
 import {
   S3Event,
   SQSBatchItemFailure,
@@ -232,17 +232,20 @@ async function startStepFunctions(
   key: string,
   documentId: string
 ): Promise<void> {
-  const input = {
-    bucket,
-    key,
-    documentId,
-  };
+  const input = { bucket, key, documentId };
 
-  await sfnClient.send(
-    new StartExecutionCommand({
+  const result = await sfnClient.send(
+    new StartSyncExecutionCommand({
+      // ← StartExecutionCommand から変更
       stateMachineArn: process.env.STATE_MACHINE_ARN!,
       name: `ingest-${documentId}-${Date.now()}`,
       input: JSON.stringify(input),
     })
   );
+
+  if (result.status === "FAILED" || result.status === "TIMED_OUT") {
+    throw new Error(
+      `Step Functions ${result.status}: ${result.error || result.cause}`
+    );
+  }
 }
