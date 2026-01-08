@@ -208,16 +208,16 @@ COMPLETED → DELETING → DELETED (物理削除)
 
 ### 共通パラメータ
 
-| パラメータ                 | デフォルト                               | 説明                           |
-| -------------------------- | ---------------------------------------- | ------------------------------ |
-| `ProjectName`              | `myelinbase`                             | プロジェクト名                 |
-| `Stage`                    | `dev`                                    | 環境 (dev/prod)                |
-| `FrontendUrl`              | -                                        | フロントエンドURL (CORS)       |
-| `UseBedrock`               | `true`                                   | Bedrock使用フラグ              |
-| `ChatModelId`              | `anthropic.claude-3-haiku-20240307-v1:0` | チャットモデル                 |
-| `EmbeddingModelId`         | `amazon.titan-embed-text-v1`             | エンベディングモデル           |
-| `PineconeApiKeyParameterName` | `/myelinbase/pinecone-api-key`          | SSM Parameter Store パラメータ名 |
-| `PineconeIndexName`        | `myelinbase-documents`                   | Pinecone インデックス名        |
+| パラメータ                    | デフォルト                               | 説明                             |
+| ----------------------------- | ---------------------------------------- | -------------------------------- |
+| `ProjectName`                 | `myelinbase`                             | プロジェクト名                   |
+| `Stage`                       | `dev`                                    | 環境 (dev/prod)                  |
+| `FrontendUrl`                 | -                                        | フロントエンドURL (CORS)         |
+| `UseBedrock`                  | `true`                                   | Bedrock使用フラグ                |
+| `ChatModelId`                 | `anthropic.claude-3-haiku-20240307-v1:0` | チャットモデル                   |
+| `EmbeddingModelId`            | `amazon.titan-embed-text-v1`             | エンベディングモデル             |
+| `PineconeApiKeyParameterName` | `/myelinbase/dev/pinecone-api-key`       | SSM Parameter Store パラメータ名 |
+| `PineconeIndexName`           | `myelinbase-documents`                   | Pinecone インデックス名          |
 
 ### 本番環境用パラメータ
 

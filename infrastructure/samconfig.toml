@@ -20,7 +20,7 @@ parameter_overrides = [
   "Stage=dev",
   "ProjectName=myelinbase-backend",
   "UseBedrock=false",
-  "PineconeApiKeyParameterName=/myelinbase/pinecone-api-key",
+  "PineconeApiKeyParameterName=/myelinbase/dev/pinecone-api-key",
   "PineconeIndexName=myelinbase-documents"
 ]
 image_repositories = []
