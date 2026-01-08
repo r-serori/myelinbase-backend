@@ -21,12 +21,19 @@ const lambdaClient = new LambdaClient({});
 const docClient = createDynamoDBClient();
 
 /**
- * SQSメッセージペイロード
+ * S3イベント通知の形式
  */
-interface IngestMessage {
-  bucket: string;
-  key: string;
-  documentId: string;
+interface S3EventNotification {
+  Records: Array<{
+    s3: {
+      bucket: {
+        name: string;
+      };
+      object: {
+        key: string;
+      };
+    };
+  }>;
 }
 
 /**
@@ -34,8 +41,27 @@ interface IngestMessage {
  */
 interface ProcessingResult {
   success: boolean;
-  shouldRetry: boolean; // SQSにリトライさせるかどうか
+  shouldRetry: boolean;
   error?: string;
+}
+
+/**
+ * S3キーからdocumentIdを抽出
+ * キー形式: uploads/{ownerId}/{documentId}
+ */
+function extractDocumentIdFromKey(key: string): string | null {
+  const decodedKey = decodeURIComponent(key);
+  const parts = decodedKey.split("/");
+
+  // uploads/{ownerId}/{documentId} の形式
+  // parts[0] = "uploads"
+  // parts[1] = ownerId
+  // parts[2] = documentId
+  if (parts.length >= 3 && parts[0] === "uploads") {
+    return parts[2];
+  }
+
+  return null;
 }
 
 /**
@@ -46,19 +72,47 @@ export const handler: SQSHandler = async (event: SQSEvent) => {
 
   for (const record of event.Records) {
     try {
-      const message: IngestMessage = JSON.parse(record.body);
-      const { bucket, key, documentId } = message;
+      const s3Event: S3EventNotification = JSON.parse(record.body);
 
-      let result: ProcessingResult;
-
-      if (isLocal) {
-        result = await processLocally(bucket, key, documentId);
-      } else {
-        result = await startStepFunctions(bucket, key, documentId);
+      if (!s3Event.Records || s3Event.Records.length === 0) {
+        continue;
       }
 
-      if (result.shouldRetry) {
-        batchItemFailures.push({ itemIdentifier: record.messageId });
+      for (const s3Record of s3Event.Records) {
+        const bucket = s3Record.s3?.bucket?.name;
+        const key = s3Record.s3?.object?.key;
+
+        if (!bucket || !key) {
+          logger("WARN", "Missing bucket or key in S3 record", {
+            bucket,
+            key,
+            record: s3Record,
+          });
+          continue;
+        }
+
+        const documentId = extractDocumentIdFromKey(key);
+
+        if (!documentId) {
+          logger("ERROR", "Could not extract documentId from key", {
+            key,
+            bucket,
+          });
+          continue;
+        }
+
+        let result: ProcessingResult;
+
+        if (isLocal) {
+          result = await processLocally(bucket, key, documentId);
+        } else {
+          result = await startStepFunctions(bucket, key, documentId);
+        }
+
+        if (result.shouldRetry) {
+          batchItemFailures.push({ itemIdentifier: record.messageId });
+          break;
+        }
       }
     } catch (error) {
       logger("ERROR", "Unexpected error in document ingestion", {
