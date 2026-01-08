@@ -72,8 +72,10 @@ export function splitTextIntoChunks(
 
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
-    const chunk = text.substring(start, end);
-    chunks.push(chunk.trim());
+    const chunk = sanitizeText(text.substring(start, end)).trim();
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
     start += chunkSize - overlap;
   }
 
@@ -98,7 +100,8 @@ export function createSmallToBigChunks(
   // 1. Parentループ
   while (parentStart < text.length) {
     const parentEnd = Math.min(parentStart + parentSize, text.length);
-    const parentText = text.substring(parentStart, parentEnd).trim();
+    const rawParentText = text.substring(parentStart, parentEnd);
+    const parentText = sanitizeText(rawParentText).trim();
     const parentId = randomUUID(); // Parent識別用
 
     if (parentText.length === 0) {
@@ -125,28 +128,27 @@ export function createSmallToBigChunks(
           childRelativeStart + childSize,
           parentText.length
         );
-        const childText = parentText
-          .substring(childRelativeStart, childRelativeEnd)
-          .trim();
+        const rawChildText = parentText.substring(
+          childRelativeStart,
+          childRelativeEnd
+        );
+        const childText = sanitizeText(rawChildText).trim();
 
         if (childText.length > 0) {
           chunks.push({
             childText: childText,
-            parentText: parentText, // 検索ヒット時はこのParentTextを返す
+            parentText: parentText,
             chunkIndex: globalChunkIndex++,
             parentId: parentId,
           });
         }
 
-        // 次のChildへ
         childRelativeStart += childSize - childOverlap;
 
-        // 無限ループ防止（万が一overlap設定ミスなどで進まない場合）
         if (childSize <= childOverlap) break;
       }
     }
 
-    // 次のParentへ
     parentStart += parentSize - parentOverlap;
   }
 
@@ -176,6 +178,7 @@ export function createDocumentMetadata(
   text: string,
   parentId?: string
 ): DocumentMetadataEntity {
+  const truncatedText = sanitizeText(text.substring(0, 10000));
   const meta: DocumentMetadataEntity = {
     documentId,
     fileName,
@@ -184,7 +187,7 @@ export function createDocumentMetadata(
     totalChunks,
     // Pineconeのメタデータ上限(40KB)を考慮しつつ、実用上切れないサイズに緩和
     // 日本語3万文字 ≒ 90KB (UTF-8 3byte) なので、安全を見て 10,000文字程度でも十分
-    text: text.substring(0, 10000),
+    text: truncatedText,
     createdAt: new Date().toISOString(),
   };
 
