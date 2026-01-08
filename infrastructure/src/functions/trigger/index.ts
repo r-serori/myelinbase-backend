@@ -1,228 +1,76 @@
 // src/functions/trigger/index.ts
-// SQS経由でS3イベントを受信し、Step Functionsを起動する
 
-import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
-import { SFNClient, StartSyncExecutionCommand } from "@aws-sdk/client-sfn";
 import {
-  S3Event,
-  SQSBatchItemFailure,
-  SQSBatchResponse,
-  SQSEvent,
-} from "aws-lambda";
+  InvocationType,
+  InvokeCommand,
+  LambdaClient,
+} from "@aws-sdk/client-lambda";
+import { SFNClient, StartSyncExecutionCommand } from "@aws-sdk/client-sfn";
+import { UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import type { SQSBatchItemFailure, SQSEvent, SQSHandler } from "aws-lambda";
 
 import { logger } from "../../shared/utils/api-handler";
+import { createDynamoDBClient } from "../../shared/utils/dynamodb";
 
-const IS_LOCAL = process.env.STAGE === "local";
+const TABLE_NAME = process.env.TABLE_NAME!;
+const STATE_MACHINE_ARN = process.env.STATE_MACHINE_ARN;
+const isLocal = !STATE_MACHINE_ARN;
 
 const sfnClient = new SFNClient({});
-const lambdaClient = IS_LOCAL
-  ? new LambdaClient({
-      endpoint: process.env.LOCALSTACK_ENDPOINT,
-      region: "ap-northeast-1",
-    })
-  : new LambdaClient({});
+const lambdaClient = new LambdaClient({});
+const docClient = createDynamoDBClient();
 
 /**
- * メインハンドラー
- * - ローカル環境: S3Event を直接処理
- * - AWS環境: SQSEvent を処理（S3 → SQS → Lambda）
+ * SQSメッセージペイロード
  */
-export const handler = async (
-  event: SQSEvent | S3Event
-): Promise<SQSBatchResponse | void> => {
-  // ローカル環境の場合は従来のS3イベント処理
-  if (
-    IS_LOCAL &&
-    "Records" in event &&
-    event.Records[0]?.eventSource === "aws:s3"
-  ) {
-    await handleS3EventLocal(event as S3Event);
-    return;
-  }
-
-  // AWS環境: SQSイベントを処理
-  return handleSQSEvent(event as SQSEvent);
-};
+interface IngestMessage {
+  bucket: string;
+  key: string;
+  documentId: string;
+}
 
 /**
- * SQS経由でS3イベントを受信し、Step Functionsを起動
+ * 処理結果の型
  */
-async function handleSQSEvent(event: SQSEvent): Promise<SQSBatchResponse> {
+interface ProcessingResult {
+  success: boolean;
+  shouldRetry: boolean; // SQSにリトライさせるかどうか
+  error?: string;
+}
+
+/**
+ * SQSイベントハンドラー
+ */
+export const handler: SQSHandler = async (event: SQSEvent) => {
   const batchItemFailures: SQSBatchItemFailure[] = [];
 
   for (const record of event.Records) {
     try {
-      // SQSメッセージからS3イベントをパース
-      const s3Event = JSON.parse(record.body);
+      const message: IngestMessage = JSON.parse(record.body);
+      const { bucket, key, documentId } = message;
 
-      // S3イベント通知の場合、Records配列に入っている
-      const s3Records = s3Event.Records || [s3Event];
+      let result: ProcessingResult;
 
-      for (const s3Record of s3Records) {
-        const bucket = s3Record.s3?.bucket?.name;
-        const key = decodeURIComponent(
-          (s3Record.s3?.object?.key || "").replace(/\+/g, " ")
-        );
+      if (isLocal) {
+        result = await processLocally(bucket, key, documentId);
+      } else {
+        result = await startStepFunctions(bucket, key, documentId);
+      }
 
-        // uploads/ownerId/documentId の形式からdocumentIdを抽出
-        const match = key.match(/^uploads\/([^/]+)\/([^/]+)$/);
-        const documentId = match ? match[2] : null;
-
-        if (!documentId) {
-          logger("WARN", "Could not extract documentId from key", {
-            key,
-            expectedFormat: "uploads/{ownerId}/{documentId}",
-          });
-          continue;
-        }
-
-        await startStepFunctions(bucket, key, documentId);
+      if (result.shouldRetry) {
+        batchItemFailures.push({ itemIdentifier: record.messageId });
       }
     } catch (error) {
-      logger("ERROR", "Failed to process SQS message", {
+      logger("ERROR", "Unexpected error in document ingestion", {
         messageId: record.messageId,
         error: error instanceof Error ? error.message : String(error),
       });
-
-      // 失敗したメッセージをレポート（SQSが再試行する）
-      batchItemFailures.push({
-        itemIdentifier: record.messageId,
-      });
+      batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
 
   return { batchItemFailures };
-}
-
-/**
- * ローカル環境用: S3Eventを直接処理
- */
-async function handleS3EventLocal(event: S3Event): Promise<void> {
-  await Promise.all(
-    event.Records.map(async (record) => {
-      const bucket = record.s3.bucket.name;
-      const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
-
-      // uploads/ownerId/documentId の形式からdocumentIdを抽出
-      const match = key.match(/^uploads\/([^/]+)\/([^/]+)$/);
-      const documentId = match ? match[2] : null;
-
-      if (!documentId) {
-        logger("WARN", "Could not extract documentId from key", {
-          key,
-          expectedFormat: "uploads/{ownerId}/{documentId}",
-        });
-        return;
-      }
-
-      await invokeProcessorDirectly(bucket, key, documentId);
-    })
-  );
-}
-
-/**
- * ローカル環境用: Processor Lambdaを直接呼び出す
- */
-async function invokeProcessorDirectly(
-  bucket: string,
-  key: string,
-  documentId: string
-): Promise<void> {
-  const processorFunctionName =
-    process.env.PROCESSOR_FUNCTION_NAME || "myelinbase-local-doc-processor";
-
-  try {
-    // Step 1: ステータスをPROCESSINGに更新
-    await lambdaClient.send(
-      new InvokeCommand({
-        FunctionName: processorFunctionName,
-        Payload: JSON.stringify({
-          action: "updateStatus",
-          status: "PROCESSING",
-          payload: { documentId },
-        }),
-      })
-    );
-
-    // Step 2: テキスト抽出とチャンク分割
-    const extractResponse = await lambdaClient.send(
-      new InvokeCommand({
-        FunctionName: processorFunctionName,
-        Payload: JSON.stringify({
-          action: "extractAndChunk",
-          payload: {
-            documentId,
-            bucket,
-            key,
-          },
-        }),
-      })
-    );
-
-    const extractResult = JSON.parse(
-      new TextDecoder().decode(extractResponse.Payload)
-    );
-
-    if (extractResult.errorMessage) {
-      throw new Error(extractResult.errorMessage);
-    }
-
-    // Step 3: Embedding生成とPinecone登録
-    await lambdaClient.send(
-      new InvokeCommand({
-        FunctionName: processorFunctionName,
-        Payload: JSON.stringify({
-          action: "embedAndUpsert",
-          payload: {
-            documentId,
-            chunksS3Uri: extractResult.chunksS3Uri,
-          },
-        }),
-      })
-    );
-
-    // Step 4: ステータスをCOMPLETEDに更新
-    await lambdaClient.send(
-      new InvokeCommand({
-        FunctionName: processorFunctionName,
-        Payload: JSON.stringify({
-          action: "updateStatus",
-          status: "COMPLETED",
-          payload: { documentId },
-        }),
-      })
-    );
-  } catch (error) {
-    logger("ERROR", "[LOCAL] Processing failed", {
-      documentId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    // エラー時はステータスをFAILEDに更新
-    try {
-      await lambdaClient.send(
-        new InvokeCommand({
-          FunctionName: processorFunctionName,
-          Payload: JSON.stringify({
-            action: "updateStatus",
-            status: "FAILED",
-            payload: { documentId },
-            error: {
-              message: error instanceof Error ? error.message : String(error),
-            },
-          }),
-        })
-      );
-    } catch (updateError) {
-      logger("ERROR", "[LOCAL] Failed to update status to FAILED", {
-        error:
-          updateError instanceof Error
-            ? updateError.message
-            : String(updateError),
-      });
-    }
-  }
-}
+};
 
 /**
  * AWS環境用: Step Functionsを開始
@@ -231,21 +79,208 @@ async function startStepFunctions(
   bucket: string,
   key: string,
   documentId: string
-): Promise<void> {
+): Promise<ProcessingResult> {
   const input = { bucket, key, documentId };
 
-  const result = await sfnClient.send(
-    new StartSyncExecutionCommand({
-      // ← StartExecutionCommand から変更
-      stateMachineArn: process.env.STATE_MACHINE_ARN!,
-      name: `ingest-${documentId}-${Date.now()}`,
-      input: JSON.stringify(input),
+  try {
+    const result = await sfnClient.send(
+      new StartSyncExecutionCommand({
+        stateMachineArn: STATE_MACHINE_ARN!,
+        name: `ingest-${documentId}-${Date.now()}`,
+        input: JSON.stringify(input),
+      })
+    );
+
+    if (result.status === "SUCCEEDED") {
+      return { success: true, shouldRetry: false };
+    }
+
+    const errorMessage =
+      result.status === "TIMED_OUT"
+        ? "State Machine timed out after maximum execution time."
+        : `State Machine failed: ${result.error || result.cause || "Unknown error"}`;
+
+    logger("ERROR", `Step Functions ${result.status}`, {
+      documentId,
+      status: result.status,
+      error: result.error,
+      cause: result.cause,
+    });
+
+    const updated = await updateDocumentStatusToFailed(
+      documentId,
+      errorMessage
+    );
+
+    if (updated) {
+      return {
+        success: false,
+        shouldRetry: false,
+        error: errorMessage,
+      };
+    } else {
+      return {
+        success: false,
+        shouldRetry: true,
+        error: `${errorMessage} (Failed to update status)`,
+      };
+    }
+  } catch (error) {
+    logger("ERROR", "Failed to start Step Functions", {
+      documentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      success: false,
+      shouldRetry: true,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * ドキュメントステータスをFAILEDに更新
+ */
+async function updateDocumentStatusToFailed(
+  documentId: string,
+  errorMessage: string
+): Promise<boolean> {
+  const now = new Date().toISOString();
+
+  try {
+    await docClient.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { documentId },
+        UpdateExpression:
+          "SET #status = :status, #error = :error, #updatedAt = :updatedAt",
+        ExpressionAttributeNames: {
+          "#status": "status",
+          "#error": "error",
+          "#updatedAt": "updatedAt",
+        },
+        ExpressionAttributeValues: {
+          ":status": "FAILED",
+          ":error": errorMessage,
+          ":updatedAt": now,
+        },
+      })
+    );
+
+    return true;
+  } catch (updateError) {
+    logger("ERROR", "Failed to update document status to FAILED", {
+      documentId,
+      error:
+        updateError instanceof Error
+          ? updateError.message
+          : String(updateError),
+    });
+
+    return false;
+  }
+}
+
+/**
+ * ローカル環境用: Lambda関数を直接呼び出し
+ */
+async function processLocally(
+  bucket: string,
+  key: string,
+  documentId: string
+): Promise<ProcessingResult> {
+  try {
+    // Step 1: Update status to PROCESSING
+    await invokeLambda({
+      action: "updateStatus",
+      status: "PROCESSING",
+      payload: { documentId },
+    });
+
+    // Step 2: Extract and Chunk
+    const extractResult = await invokeLambda({
+      action: "extractAndChunk",
+      payload: { documentId, bucket, key },
+    });
+    const chunksS3Uri = extractResult?.chunksS3Uri;
+
+    // Step 3: Embed and Upsert
+    await invokeLambda({
+      action: "embedAndUpsert",
+      payload: { documentId, chunksS3Uri },
+    });
+
+    // Step 4: Update status to COMPLETED
+    await invokeLambda({
+      action: "updateStatus",
+      status: "COMPLETED",
+      payload: { documentId },
+    });
+
+    return { success: true, shouldRetry: false };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    logger("ERROR", "[LOCAL] Processing failed, updating status to FAILED", {
+      documentId,
+      error: errorMessage,
+    });
+
+    try {
+      await invokeLambda({
+        action: "updateStatus",
+        status: "FAILED",
+        payload: { documentId },
+        error: { message: errorMessage },
+      });
+
+      return {
+        success: false,
+        shouldRetry: false,
+        error: errorMessage,
+      };
+    } catch (updateError) {
+      logger("ERROR", "[LOCAL] Failed to update status to FAILED", {
+        error:
+          updateError instanceof Error
+            ? updateError.message
+            : String(updateError),
+      });
+
+      return {
+        success: false,
+        shouldRetry: true,
+        error: errorMessage,
+      };
+    }
+  }
+}
+
+/**
+ * Lambda関数を呼び出し
+ */
+async function invokeLambda(
+  payload: Record<string, unknown>
+): Promise<Record<string, unknown> | undefined> {
+  const result = await lambdaClient.send(
+    new InvokeCommand({
+      FunctionName: "myelinbase-local-processor",
+      InvocationType: InvocationType.RequestResponse,
+      Payload: JSON.stringify(payload),
     })
   );
 
-  if (result.status === "FAILED" || result.status === "TIMED_OUT") {
-    throw new Error(
-      `Step Functions ${result.status}: ${result.error || result.cause}`
-    );
+  if (result.FunctionError) {
+    const errorPayload = result.Payload
+      ? JSON.parse(Buffer.from(result.Payload).toString())
+      : {};
+    throw new Error(errorPayload.errorMessage || result.FunctionError);
   }
+
+  if (result.Payload) {
+    return JSON.parse(Buffer.from(result.Payload).toString());
+  }
+
+  return undefined;
 }
