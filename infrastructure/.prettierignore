@@ -1,0 +1,13 @@
+# Build artifacts
+.aws-sam/**
+dist/**
+built/**
+node_modules/**
+
+# Coverage
+coverage/**
+
+# Config files (optional - フォーマットしたい場合は削除)
+# *.config.js
+# *.config.mjs
+

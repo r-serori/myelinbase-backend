@@ -1,0 +1,6 @@
+{
+  "name": "trigger-function",
+  "version": "1.0.0",
+  "description": "Trigger Lambda for RAG Ingestion",
+  "main": "index.ts"
+}
