@@ -510,7 +510,6 @@ Resources:
       CodeUri: .
       Handler: index.handler
       MemorySize: 256
-      ReservedConcurrentExecutions: 5
       Environment:
         Variables:
           STATE_MACHINE_ARN: !Ref RAGPipelineStateMachine
@@ -535,6 +534,8 @@ Resources:
             BatchSize: 1
             FunctionResponseTypes:
               - ReportBatchItemFailures
+            ScalingConfig:
+              MaximumConcurrency: 3
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
