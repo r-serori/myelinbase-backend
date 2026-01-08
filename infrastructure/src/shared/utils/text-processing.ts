@@ -72,8 +72,10 @@ export function splitTextIntoChunks(
 
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
-    const chunk = text.substring(start, end);
-    chunks.push(chunk.trim());
+    const chunk = sanitizeText(text.substring(start, end)).trim();
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
     start += chunkSize - overlap;
   }
 
@@ -98,7 +100,8 @@ export function createSmallToBigChunks(
   // 1. Parentループ
   while (parentStart < text.length) {
     const parentEnd = Math.min(parentStart + parentSize, text.length);
-    const parentText = text.substring(parentStart, parentEnd).trim();
+    const rawParentText = text.substring(parentStart, parentEnd);
+    const parentText = sanitizeText(rawParentText).trim();
     const parentId = randomUUID(); // Parent識別用
 
     if (parentText.length === 0) {
@@ -125,28 +128,27 @@ export function createSmallToBigChunks(
           childRelativeStart + childSize,
           parentText.length
         );
-        const childText = parentText
-          .substring(childRelativeStart, childRelativeEnd)
-          .trim();
+        const rawChildText = parentText.substring(
+          childRelativeStart,
+          childRelativeEnd
+        );
+        const childText = sanitizeText(rawChildText).trim();
 
         if (childText.length > 0) {
           chunks.push({
             childText: childText,
-            parentText: parentText, // 検索ヒット時はこのParentTextを返す
+            parentText: parentText,
             chunkIndex: globalChunkIndex++,
             parentId: parentId,
           });
         }
 
-        // 次のChildへ
         childRelativeStart += childSize - childOverlap;
 
-        // 無限ループ防止（万が一overlap設定ミスなどで進まない場合）
         if (childSize <= childOverlap) break;
       }
     }
 
-    // 次のParentへ
     parentStart += parentSize - parentOverlap;
   }
 
@@ -176,6 +178,7 @@ export function createDocumentMetadata(
   text: string,
   parentId?: string
 ): DocumentMetadataEntity {
+  const truncatedText = sanitizeText(text.substring(0, 10000));
   const meta: DocumentMetadataEntity = {
     documentId,
     fileName,
@@ -184,7 +187,7 @@ export function createDocumentMetadata(
     totalChunks,
     // Pineconeのメタデータ上限(40KB)を考慮しつつ、実用上切れないサイズに緩和
     // 日本語3万文字 ≒ 90KB (UTF-8 3byte) なので、安全を見て 10,000文字程度でも十分
-    text: text.substring(0, 10000),
+    text: truncatedText,
     createdAt: new Date().toISOString(),
   };
 
@@ -200,46 +203,19 @@ export function createDocumentMetadata(
  * Pineconeは無効なUnicodeコードポイントを受け付けないため
  */
 export function sanitizeText(text: string): string {
-  let result = "";
-
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-
-    // High surrogate (D800-DBFF)
-    if (code >= 0xd800 && code <= 0xdbff) {
-      // 次の文字がlow surrogateかチェック
-      if (i + 1 < text.length) {
-        const nextCode = text.charCodeAt(i + 1);
-        if (nextCode >= 0xdc00 && nextCode <= 0xdfff) {
-          // 有効なサロゲートペアなので両方追加
-          result += text[i] + text[i + 1];
-          i++; // 次の文字をスキップ
-          continue;
-        }
-      }
-      // 孤立したhigh surrogate - スキップ
-      continue;
-    }
-
-    // Low surrogate (DC00-DFFF) - 前にhigh surrogateがなければここに来る
-    if (code >= 0xdc00 && code <= 0xdfff) {
-      // 孤立したlow surrogate - スキップ（これが \udc1b のケース）
-      continue;
-    }
-
-    // 制御文字をスキップ (NULL, BEL, BS, etc.)
-    if (
-      (code >= 0x00 && code <= 0x08) ||
-      code === 0x0b ||
-      code === 0x0c ||
-      (code >= 0x0e && code <= 0x1f) ||
-      code === 0x7f
-    ) {
-      continue;
-    }
-
-    result += text[i];
-  }
-
-  return result;
+  // 孤立したサロゲートペアを除去
+  // High surrogate: \uD800-\uDBFF
+  // Low surrogate: \uDC00-\uDFFF
+  // 正しいペアは High + Low の組み合わせ
+  // 孤立したものは無効なので除去する
+  return (
+    text
+      // 孤立したhigh surrogate（後ろにlow surrogateがない）を除去
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+      // 孤立したlow surrogate（前にhigh surrogateがない）を除去
+      .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
+      // その他の制御文字（NULL、SUB等）を除去（オプション）
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+  );
 }
