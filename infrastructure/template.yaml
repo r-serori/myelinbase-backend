@@ -369,7 +369,7 @@ Resources:
       Handler: index.handler
       Timeout: 300
       MemorySize: 1024
-      ReservedConcurrentExecutions: 10
+      ReservedConcurrentExecutions: 15
       Environment:
         Variables:
           BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
@@ -485,7 +485,7 @@ Resources:
             FunctionResponseTypes:
               - ReportBatchItemFailures
             ScalingConfig:
-              MaximumConcurrency: 3
+              MaximumConcurrency: 5
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
