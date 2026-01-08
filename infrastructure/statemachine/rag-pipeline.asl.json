@@ -20,6 +20,19 @@
           "ResultPath": "$.error",
           "Next": "UpdateStatusFailed"
         }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
       ]
     },
     "ExtractAndChunk": {
@@ -49,10 +62,11 @@
             "Lambda.TooManyRequestsException",
             "Lambda.AWSLambdaException"
           ],
-          "IntervalSeconds": 2,
-          "MaxAttempts": 3,
+          "IntervalSeconds": 5,
+          "MaxAttempts": 6,
           "BackoffRate": 2,
-          "JitterStrategy": "FULL"
+          "JitterStrategy": "FULL",
+          "Comment": "★ 変更: IntervalSeconds 2→5, MaxAttempts 3→6"
         }
       ]
     },
@@ -83,10 +97,11 @@
             "Lambda.AWSLambdaException",
             "States.TaskFailed"
           ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 5,
+          "IntervalSeconds": 10,
+          "MaxAttempts": 8,
           "BackoffRate": 2,
-          "JitterStrategy": "FULL"
+          "JitterStrategy": "FULL",
+          "Comment": "★ 変更: IntervalSeconds 5→10, MaxAttempts 5→8"
         }
       ]
     },
@@ -100,7 +115,20 @@
           "documentId.$": "$.documentId"
         }
       },
-      "End": true
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
     },
     "UpdateStatusFailed": {
       "Type": "Task",
@@ -115,7 +143,20 @@
           "message.$": "States.Format('Pipeline failed: {}', $.error.Cause)"
         }
       },
-      "End": true
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
     }
   }
 }
