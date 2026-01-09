@@ -3,11 +3,11 @@ import {
   APIGatewayProxyResult,
   Context,
 } from "aws-lambda";
-import { ZodSchema } from "zod";
+import { ZodType } from "zod";
 
 import { ErrorCode } from "../types/error-code";
 
-import { getCorsHeaders } from "./response";
+import { CorsHeaders, getCorsHeaders } from "./response";
 
 interface LambdaStreamMetadata {
   statusCode: number;
@@ -113,7 +113,7 @@ function logApiError(
   });
 }
 
-export function validateJson<T>(body: string | null, schema: ZodSchema<T>): T {
+export function validateJson<T>(body: string | null, schema: ZodType<T>): T {
   if (!body) {
     throw new AppError(400, ErrorCode.MISSING_PARAMETER);
   }
@@ -231,6 +231,36 @@ type StreamLogicFunction = (
   context: Context
 ) => Promise<void>;
 
+/**
+ * ストリーミング用ヘッダーを生成
+ * Content-Type が application/json の場合はストリーミング関連ヘッダーを除外
+ */
+function buildStreamHeaders(
+  corsHeaders: CorsHeaders,
+  contentType: string
+): Record<string, string | boolean> {
+  const isJsonResponse = contentType.includes("application/json");
+
+  // JSON レスポンスの場合はストリーミング関連ヘッダーを除外
+  if (isJsonResponse) {
+    return {
+      ...corsHeaders,
+      "Content-Type": contentType,
+    };
+  }
+
+  // ストリーミングレスポンス（text/plain 等）の場合は v3.x ヘッダーを含める
+  return {
+    ...corsHeaders,
+    "Content-Type": contentType,
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    // v3.x で必要なヘッダー
+    "X-Vercel-AI-UI-Message-Stream": "v1",
+    "X-Accel-Buffering": "no",
+  };
+}
+
 export const streamApiHandler = (logic: StreamLogicFunction) => {
   const IS_LOCAL_STAGE = process.env.STAGE === "local";
 
@@ -264,18 +294,9 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           ): StreamWriter => {
             if (isHeadersSent) return currentStream;
 
-            // v3.x UI Message Stream Protocol 用のヘッダーを設定
             const metadata: LambdaStreamMetadata = {
               statusCode,
-              headers: {
-                ...corsHeaders,
-                "Content-Type": contentType,
-                "Cache-Control": "no-cache",
-                Connection: "keep-alive",
-                // v3.x で必要なヘッダー
-                "X-Vercel-AI-UI-Message-Stream": "v1",
-                "X-Accel-Buffering": "no",
-              },
+              headers: buildStreamHeaders(corsHeaders, contentType),
             };
 
             currentStream = awslambda.HttpResponseStream.from(
@@ -389,16 +410,12 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
       ): StreamWriter => {
         if (isInit) return mockStream;
         responseStatusCode = statusCode;
-        // v3.x UI Message Stream Protocol 用のヘッダーを設定
-        responseHeaders = {
-          ...corsHeaders,
-          "Content-Type": contentType,
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-          // v3.x で必要なヘッダー
-          "X-Vercel-AI-UI-Message-Stream": "v1",
-          "X-Accel-Buffering": "no",
-        };
+        // Content-Type に応じてヘッダーを構築
+        // 型アサーションを追加: CorsHeaders を Record<string, string | boolean> として扱う
+        responseHeaders = buildStreamHeaders(
+          corsHeaders as CorsHeaders,
+          contentType
+        );
         isInit = true;
         return mockStream;
       },
