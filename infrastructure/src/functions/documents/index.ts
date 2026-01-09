@@ -24,7 +24,6 @@ import {
   TEXT_TYPES,
   UpdateTagsRequestDto,
   UpdateTagsRequestSchema,
-  UpdateTagsResponseDto,
   UploadRequestFileResultDto,
   UploadRequestRequestDto,
   UploadRequestRequestSchema,
@@ -69,7 +68,9 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
 
   if (httpMethod === "GET" && path === "/documents") {
     const response = await getDocuments(ownerId);
-    return response;
+    return {
+      body: response,
+    };
   }
 
   if (
@@ -81,7 +82,9 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
     const response = await getDownloadUrl(documentId, ownerId);
-    return response;
+    return {
+      body: response,
+    };
   }
 
   if (httpMethod === "GET" && path.startsWith("/documents/")) {
@@ -89,7 +92,9 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
     const response = await getDocumentById(documentId, ownerId);
-    return response;
+    return {
+      body: response,
+    };
   }
 
   if (httpMethod === "POST" && path === "/documents/upload") {
@@ -117,8 +122,8 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
     if (!documentId) throw new AppError(400, ErrorCode.MISSING_PARAMETER);
 
     const body = validateJson(event.body, UpdateTagsRequestSchema);
-    const response = await updateTags(documentId, body, ownerId);
-    return response;
+    await updateTags(documentId, body, ownerId);
+    return { statusCode: 204 };
   }
 
   throw new AppError(404);
@@ -322,7 +327,7 @@ async function updateTags(
   documentId: string,
   body: UpdateTagsRequestDto,
   ownerId: string
-): Promise<UpdateTagsResponseDto> {
+): Promise<void> {
   const { tags } = body;
 
   const sanitizedTags = sanitizeTags(tags);
@@ -339,21 +344,9 @@ async function updateTags(
       ":updatedAt": new Date().toISOString(),
       ":ownerId": ownerId,
     },
-    ReturnValues: "ALL_NEW",
   });
 
-  const response = await docClient.send(command);
-  const item = response.Attributes as DocumentEntity;
-  if (!item) {
-    throw new AppError(500, ErrorCode.INTERNAL_SERVER_ERROR, {
-      documentId,
-      ownerId,
-      response,
-      error: new Error("DynamoDB update succeeded but returned no attributes"),
-    });
-  }
-  const document = toDocumentDTO(item);
-  return { document };
+  await docClient.send(command);
 }
 
 /**

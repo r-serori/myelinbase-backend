@@ -132,10 +132,6 @@ export const GetDocumentDownloadUrlResponseSchema = z
   })
   .openapi("GetDocumentDownloadUrlResponse");
 
-export type GetDocumentDownloadUrlResponseDto = z.infer<
-  typeof GetDocumentDownloadUrlResponseSchema
->;
-
 export const UploadRequestResultSchema = z
   .object({
     documentId: z.string(),
@@ -177,13 +173,7 @@ export const DeleteDocumentResponseSchema = z
   })
   .openapi("DeleteDocumentResponse");
 
-export type DeleteDocumentResponseDto = z.infer<
-  typeof DeleteDocumentResponseSchema
->;
-
 export const ResultStatusSchema = z.enum(RESULT_STATUS).openapi("ResultStatus");
-
-export type ResultStatusDto = z.infer<typeof ResultStatusSchema>;
 
 export const BatchDeleteResultSchema = z
   .object({
@@ -208,8 +198,6 @@ export const UpdateTagsResponseSchema = z
     document: DocumentResponseSchema,
   })
   .openapi("UpdateTagsResponse");
-
-export type UpdateTagsResponseDto = z.infer<typeof UpdateTagsResponseSchema>;
 
 export const UploadRequestErrorResponseSchema = z
   .object({

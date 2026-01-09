@@ -304,27 +304,6 @@ components:
       required:
         - sessionId
         - messages
-    UpdateSessionNameResponse:
-      type: object
-      properties:
-        session:
-          $ref: "#/components/schemas/ChatSession"
-      required:
-        - session
-    DeleteSessionResponse:
-      type: object
-      properties:
-        sessionId:
-          type: string
-      required:
-        - sessionId
-    SubmitFeedbackResponse:
-      type: object
-      properties:
-        item:
-          $ref: "#/components/schemas/ChatMessage"
-      required:
-        - item
     ChatStreamErrorResponse:
       type: object
       properties:
@@ -716,13 +695,6 @@ components:
             $ref: "#/components/schemas/BatchDeleteResult"
       required:
         - results
-    UpdateTagsResponse:
-      type: object
-      properties:
-        document:
-          $ref: "#/components/schemas/DocumentResponse"
-      required:
-        - document
     UploadRequestErrorResponse:
       type: object
       properties:
@@ -890,12 +862,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SubmitFeedbackRequest"
       responses:
-        "200":
-          description: Feedback submitted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SubmitFeedbackResponse"
+        "204":
+          description: Feedback submitted successfully
         "400":
           description: Bad Request
           content:
@@ -1005,12 +973,8 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateSessionNameRequest"
       responses:
-        "200":
-          description: Session updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UpdateSessionNameResponse"
+        "204":
+          description: Session name updated successfully
         "400":
           description: Bad Request
           content:
@@ -1040,12 +1004,8 @@ paths:
           name: sessionId
           in: path
       responses:
-        "200":
-          description: Session deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DeleteSessionResponse"
+        "204":
+          description: Session deleted successfully
         "404":
           description: Not Found
           content:
@@ -1265,12 +1225,8 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateTagsRequest"
       responses:
-        "200":
-          description: Tags updated
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UpdateTagsResponse"
+        "204":
+          description: Tags updated successfully
         "400":
           description: Bad Request
           content:

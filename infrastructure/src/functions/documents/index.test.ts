@@ -547,7 +547,7 @@ describe("Documents Function (Auth Integration)", () => {
   // PATCH /documents/{id}/tags
   // ==========================================
   describe("PATCH /documents/{id}/tags", () => {
-    it("should update tags and return updated document", async () => {
+    it("should update tags and return 204", async () => {
       ddbMock.on(UpdateCommand).resolves({
         Attributes: {
           documentId: "doc-1",
@@ -557,7 +557,7 @@ describe("Documents Function (Auth Integration)", () => {
         },
       });
 
-      const body: UpdateTagsBody = { tags: [" new-tag ", "tag2", ""] }; // 空文字やスペースあり
+      const body: UpdateTagsBody = { tags: [" new-tag ", "tag2", ""] };
       const event = createEvent(
         "PATCH",
         "/documents/doc-1/tags",
@@ -567,18 +567,16 @@ describe("Documents Function (Auth Integration)", () => {
 
       const result = await invokeHandler(event);
 
-      expect(result.statusCode).toBe(200); // 戻り値は { document: ... } なので通常 apiHandler が 200 を返す
-      const resBody = JSON.parse(result.body);
-      expect(resBody.document.tags).toEqual(["new-tag", "tag2"]);
+      expect(result.statusCode).toBe(204);
+      expect(result.body).toBe("{}"); // ボディなし
 
-      // UpdateCommand の検証
       const updateArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
       expect(updateArgs.Key?.documentId).toBe("doc-1");
       expect(updateArgs.ExpressionAttributeValues?.[":tags"]).toEqual([
         "new-tag",
         "tag2",
-      ]); // サニタイズされていること
-      expect(updateArgs.ReturnValues).toBe("ALL_NEW");
+      ]);
+      expect(updateArgs.ReturnValues).toBeUndefined();
     });
 
     it("should return error response if update fails (e.g. document doesn't exist)", async () => {

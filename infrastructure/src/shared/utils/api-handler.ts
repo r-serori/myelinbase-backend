@@ -194,7 +194,7 @@ export const apiHandler = (logic: LogicFunction) => {
       return {
         statusCode: result?.statusCode || 200,
         headers: { "Content-Type": "application/json", ...corsHeaders },
-        body: JSON.stringify(result?.body || result || {}),
+        body: JSON.stringify(result?.body ?? {}),
       };
     } catch (rawError: unknown) {
       const error = normalizeError(rawError);
