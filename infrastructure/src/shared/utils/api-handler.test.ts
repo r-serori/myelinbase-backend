@@ -177,6 +177,48 @@ describe("API Handler Utils", () => {
       expect(response.headers?.["Connection"]).toBe("keep-alive");
     });
 
+    it("should NOT include streaming headers for application/json responses", async () => {
+      const logic = (
+        _event: APIGatewayProxyEvent,
+        streamHelper: StreamHelper
+      ) => {
+        // JSON レスポンスの場合
+        const stream = streamHelper.init(200, "application/json");
+        stream.write(JSON.stringify({ sessions: [] }));
+        stream.end();
+        return Promise.resolve();
+      };
+
+      type LocalHandler = (
+        event: APIGatewayProxyEvent,
+        context: Context
+      ) => Promise<{
+        statusCode: number;
+        headers: Record<string, string | boolean>;
+        body: string;
+      }>;
+
+      const wrappedHandler = streamApiHandler(logic) as LocalHandler;
+      const response = await wrappedHandler(createEvent(), mockContext);
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ sessions: [] });
+
+      // JSON レスポンスの場合はストリーミングヘッダーが含まれないことを確認
+      expect(response.headers?.["Content-Type"]).toBe("application/json");
+      expect(
+        response.headers?.["X-Vercel-AI-UI-Message-Stream"]
+      ).toBeUndefined();
+      expect(response.headers?.["X-Accel-Buffering"]).toBeUndefined();
+      expect(response.headers?.["Cache-Control"]).toBeUndefined();
+      expect(response.headers?.["Connection"]).toBeUndefined();
+
+      // CORS ヘッダーは含まれることを確認
+      expect(response.headers?.["Access-Control-Allow-Origin"]).toBe(
+        "http://localhost:3000"
+      );
+    });
+
     it("should handle errors in streaming logic", async () => {
       const logic = () =>
         Promise.reject(new AppError(400, ErrorCode.INVALID_PARAMETER));
