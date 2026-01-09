@@ -64,6 +64,8 @@ export const TextUIPartSchema = z
   })
   .openapi("TextUIPart");
 
+export type TextUIPartDto = z.infer<typeof TextUIPartSchema>;
+
 export const SourceDocumentUIPartSchema = z
   .object({
     type: z.literal("source-document"),
@@ -315,7 +317,6 @@ export type GetSessionMessagesResponseDto = z.infer<
 
 export const UpdateSessionNameResponseSchema = z
   .object({
-    status: z.literal("success"),
     session: ChatSessionSchema,
   })
   .openapi("UpdateSessionNameResponse");
@@ -326,7 +327,7 @@ export type UpdateSessionNameResponseDto = z.infer<
 
 export const DeleteSessionResponseSchema = z
   .object({
-    status: z.literal("success"),
+    sessionId: z.string(),
   })
   .openapi("DeleteSessionResponse");
 
@@ -336,7 +337,6 @@ export type DeleteSessionResponseDto = z.infer<
 
 export const SubmitFeedbackResponseSchema = z
   .object({
-    status: z.literal("success"),
     item: ChatMessageSchema,
   })
   .openapi("SubmitFeedbackResponse");

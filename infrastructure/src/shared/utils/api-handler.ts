@@ -294,6 +294,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           ): StreamWriter => {
             if (isHeadersSent) return currentStream;
 
+            // Content-Type に応じてヘッダーを構築
             const metadata: LambdaStreamMetadata = {
               statusCode,
               headers: buildStreamHeaders(corsHeaders, contentType),
@@ -411,11 +412,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
         if (isInit) return mockStream;
         responseStatusCode = statusCode;
         // Content-Type に応じてヘッダーを構築
-        // 型アサーションを追加: CorsHeaders を Record<string, string | boolean> として扱う
-        responseHeaders = buildStreamHeaders(
-          corsHeaders as CorsHeaders,
-          contentType
-        );
+        responseHeaders = buildStreamHeaders(corsHeaders, contentType);
         isInit = true;
         return mockStream;
       },

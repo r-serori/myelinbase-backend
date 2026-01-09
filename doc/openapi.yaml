@@ -307,35 +307,23 @@ components:
     UpdateSessionNameResponse:
       type: object
       properties:
-        status:
-          type: string
-          enum:
-            - success
         session:
           $ref: "#/components/schemas/ChatSession"
       required:
-        - status
         - session
     DeleteSessionResponse:
       type: object
       properties:
-        status:
+        sessionId:
           type: string
-          enum:
-            - success
       required:
-        - status
+        - sessionId
     SubmitFeedbackResponse:
       type: object
       properties:
-        status:
-          type: string
-          enum:
-            - success
         item:
           $ref: "#/components/schemas/ChatMessage"
       required:
-        - status
         - item
     ChatStreamErrorResponse:
       type: object

@@ -345,57 +345,32 @@ Resources:
           Statement:
             - Effect: Allow
               Action:
-                - dynamodb:*
-              Resource: "*"
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt ChatHistoryTable.Arn
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+            - Effect: Allow
+              Action:
                 - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${ChatModelId}"
+            - Effect: Allow
+              Action:
                 - ssm:GetParameter
-              Resource: "*"
+              Resource:
+                - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PineconeApiKeyParameterName}"
       Events:
-        Chat:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat
-            Method: POST
         ChatStream:
           Type: Api
           Properties:
             RestApiId: !Ref ServerlessApiGateway
             Path: /chat/stream
             Method: POST
-        ChatFeedback:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat/feedback
-            Method: POST
-        GetSessions:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat/sessions
-            Method: GET
-        GetSession:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat/sessions/{sessionId}
-            Method: GET
-        UpdateSession:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat/sessions/{sessionId}
-            Method: PATCH
-        DeleteSession:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat/sessions/{sessionId}
-            Method: DELETE
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -407,6 +382,88 @@ Resources:
         Sourcemap: true
         EntryPoints:
           - src/functions/chat/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Chat Sessions
+  # ---------------------------------------------------
+  ChatSessionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-chat-sessions"
+      CodeUri: .
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Description: Chat Sessions API
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt ChatHistoryTable.Arn
+                - !Sub "${ChatHistoryTable.Arn}/index/GSI1"
+      Events:
+        ChatFeedback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/feedback
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetSessions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        UpdateSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
+        DeleteSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/chat-sessions/index.ts
         External:
           - "@aws-sdk/*"
 
@@ -433,11 +490,27 @@ Resources:
           Statement:
             - Effect: Allow
               Action:
-                - dynamodb:*
-                - s3:*
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt DocumentTable.Arn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}/*"
+            - Effect: Allow
+              Action:
                 - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+            - Effect: Allow
+              Action:
                 - ssm:GetParameter
-              Resource: "*"
+              Resource:
+                - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PineconeApiKeyParameterName}"
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -573,10 +646,26 @@ Resources:
           Statement:
             - Effect: Allow
               Action:
-                - dynamodb:*
-                - s3:*
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt DocumentTable.Arn
+                - !Sub "${DocumentTable.Arn}/index/OwnerIndex"
+                - !Sub "${DocumentTable.Arn}/index/FileNameIndex"
+                - !Sub "${DocumentTable.Arn}/index/FileHashIndex"
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}/*"
+            - Effect: Allow
+              Action:
                 - ssm:GetParameter
-              Resource: "*"
+              Resource:
+                - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PineconeApiKeyParameterName}"
       Events:
         GetDocuments:
           Type: Api
@@ -654,10 +743,9 @@ Resources:
           Statement:
             - Effect: Allow
               Action:
-                - dynamodb:*
-                - s3:*
-                - ssm:GetParameter
-              Resource: "*"
+                - s3:DeleteObject
+              Resource:
+                - !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}/*"
       Events:
         DynamoDBStream:
           Type: DynamoDB

@@ -1,0 +1,6 @@
+{
+  "name": "chat-sessions-function",
+  "version": "1.0.0",
+  "description": "Chat Sessions API Lambda Function",
+  "main": "index.ts"
+}

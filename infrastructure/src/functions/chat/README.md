@@ -8,88 +8,28 @@
 
 | 責務               | 説明                                                          |
 | ------------------ | ------------------------------------------------------------- |
-| **セッション管理** | チャットセッションの作成、一覧取得、名前変更、削除            |
 | **メッセージ処理** | ユーザークエリの受信、RAG コンテキスト検索、AI レスポンス生成 |
 | **ストリーミング** | リアルタイムでのレスポンス配信（NDJSON 形式）                 |
-| **履歴管理**       | メッセージ履歴の保存と取得                                    |
-| **フィードバック** | ユーザーフィードバック（Good/Bad）の収集                      |
 
 ## 環境変数
 
-| 変数名                         | 必須 | デフォルト                               | 説明                                |
-| ------------------------------ | :--: | ---------------------------------------- | ----------------------------------- |
-| `TABLE_NAME`                   |  ✅  | -                                        | Chat History DynamoDB テーブル名    |
-| `DOCUMENT_TABLE_NAME`          |  ✅  | -                                        | Documents DynamoDB テーブル名       |
-| `MODEL_ID`                     |  -   | `anthropic.claude-3-haiku-20240307-v1:0` | Bedrock チャットモデル ID           |
-| `USE_MOCK_BEDROCK`             |  -   | `false`                                  | モック Bedrock を使用（ローカル用） |
-| `STAGE`                        |  -   | `local`                                  | 環境（local/dev/prod）              |
-| `ALLOWED_ORIGINS`              |  -   | -                                        | CORS 許可オリジン                   |
-| `PINECONE_API_KEY_PARAMETER_NAME` |  -   | -                                        | Pinecone API キーのSSMパラメータ名   |
-| `PINECONE_INDEX_NAME`          |  -   | -                                        | Pinecone インデックス名             |
+| 変数名                            | 必須 | デフォルト                               | 説明                                |
+| --------------------------------- | :--: | ---------------------------------------- | ----------------------------------- |
+| `TABLE_NAME`                      |  ✅  | -                                        | Chat History DynamoDB テーブル名    |
+| `MODEL_ID`                        |  -   | `anthropic.claude-3-haiku-20240307-v1:0` | Bedrock チャットモデル ID           |
+| `USE_MOCK_BEDROCK`                |  -   | `false`                                  | モック Bedrock を使用（ローカル用） |
+| `STAGE`                           |  -   | `local`                                  | 環境（local/dev/prod）              |
+| `USER_POOL_ID`                    |  -   | -                                        | Cognito User Pool ID                |
+| `CLIENT_ID`                       |  -   | -                                        | Cognito Client ID                   |
+| `ALLOWED_ORIGINS`                 |  -   | -                                        | CORS 許可オリジン                   |
+| `PINECONE_API_KEY_PARAMETER_NAME` |  -   | -                                        | Pinecone API キーのSSMパラメータ名  |
+| `PINECONE_INDEX_NAME`             |  -   | -                                        | Pinecone インデックス名             |
 
 ## API エンドポイント
 
-### 1. セッション作成
+### 1. メッセージ送信（ストリーミング）
 
-`POST /chat/sessions`
-
-新しいチャットセッションを作成します。
-
-**リクエスト**
-
-```json
-{
-  "sessionName": "プロジェクト相談",
-  "selectedDocumentIds": ["doc-001", "doc-002"]
-}
-```
-
-**バリデーション**
-
-| 項目               | 制限          |
-| ------------------ | ------------- |
-| セッション名       | 最大 100 文字 |
-| ドキュメント選択数 | 最大 10 個    |
-
-**レスポンス (201 Created)**
-
-```json
-{
-  "session": {
-    "sessionId": "sess-550e8400-e29b-41d4-a716-446655440000",
-    "sessionName": "プロジェクト相談",
-    "selectedDocumentIds": ["doc-001", "doc-002"],
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "lastMessageAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-### 2. セッション一覧取得
-
-`GET /chat/sessions`
-
-認証ユーザーのチャットセッション一覧を取得します。
-
-**レスポンス (200 OK)**
-
-```json
-{
-  "sessions": [
-    {
-      "sessionId": "sess-001",
-      "sessionName": "プロジェクト相談",
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "lastMessageAt": "2024-01-01T10:30:00.000Z",
-      "updatedAt": "2024-01-01T10:30:00.000Z"
-    }
-  ]
-}
-```
-
-### 3. メッセージ送信（ストリーミング）
-
-`POST /chat/sessions/{sessionId}/messages`
+`POST /chat/stream`
 
 メッセージを送信し、AI レスポンスをストリーミングで受信します。
 
@@ -131,114 +71,6 @@ d:{"finishReason":"stop"}
 | `0:`           | テキストチャンク           |
 | `e:`           | 完了イベント（使用量情報） |
 | `d:`           | 完了シグナル               |
-
-### 4. メッセージ履歴取得
-
-`GET /chat/sessions/{sessionId}/messages`
-
-セッションのメッセージ履歴を取得します。
-
-**レスポンス (200 OK)**
-
-```json
-{
-  "messages": [
-    {
-      "historyId": "hist-001",
-      "sessionId": "sess-001",
-      "userQuery": "ドキュメントの要約を教えてください",
-      "aiResponse": "アップロードされたドキュメントは...",
-      "sourceDocuments": [
-        {
-          "documentId": "doc-001",
-          "fileName": "report.pdf",
-          "text": "該当するテキスト...",
-          "score": 0.95
-        }
-      ],
-      "feedbackType": "NONE",
-      "createdAt": "2024-01-01T10:30:00.000Z"
-    }
-  ]
-}
-```
-
-### 5. セッション名更新
-
-`PATCH /chat/sessions/{sessionId}`
-
-セッション名を更新します。
-
-**リクエスト**
-
-```json
-{
-  "sessionName": "新しいセッション名"
-}
-```
-
-**レスポンス (200 OK)**
-
-```json
-{
-  "session": {
-    "sessionId": "sess-001",
-    "sessionName": "新しいセッション名",
-    "updatedAt": "2024-01-02T10:00:00.000Z"
-  }
-}
-```
-
-### 6. セッション削除
-
-`DELETE /chat/sessions/{sessionId}`
-
-セッションとその全メッセージ履歴を削除します。
-
-**レスポンス (200 OK)**
-
-```json
-{
-  "message": "Session deleted successfully"
-}
-```
-
-### 7. フィードバック送信
-
-`POST /chat/messages/{historyId}/feedback`
-
-メッセージに対するフィードバックを送信します。
-
-**リクエスト**
-
-```json
-{
-  "feedbackType": "GOOD",
-  "feedbackReasons": ["helpful", "accurate"],
-  "comment": "とても参考になりました"
-}
-```
-
-**フィードバック種別**
-
-| 値     | 説明               |
-| ------ | ------------------ |
-| `NONE` | フィードバックなし |
-| `GOOD` | 良い回答           |
-| `BAD`  | 悪い回答           |
-
-**レスポンス (200 OK)**
-
-```json
-{
-  "message": {
-    "historyId": "hist-001",
-    "feedbackType": "GOOD",
-    "feedbackReasons": ["helpful", "accurate"],
-    "feedbackComment": "とても参考になりました"
-  }
-}
-```
 
 ## RAG パイプライン
 
@@ -301,9 +133,9 @@ Lambda Function URL は `AuthType: NONE` で公開されていますが、関数
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 
 const verifier = CognitoJwtVerifier.create({
-  userPoolId: process.env.COGNITO_USER_POOL_ID,
-  tokenUse: "access",
-  clientId: process.env.COGNITO_CLIENT_ID,
+  userPoolId: process.env.USER_POOL_ID,
+  tokenUse: "id",
+  clientId: process.env.CLIENT_ID,
 });
 
 const payload = await verifier.verify(token);
@@ -318,21 +150,18 @@ const ownerId = payload.sub;
 
 ### Chat History Table
 
-| 属性                  | 型             | 説明                      |
-| --------------------- | -------------- | ------------------------- |
-| `sessionId` (PK)      | String         | セッション ID             |
-| `historyId` (SK)      | String         | 履歴 ID（ソートキー）     |
-| `ownerId`             | String         | 所有者 ID                 |
-| `sessionName`         | String         | セッション名              |
-| `selectedDocumentIds` | List\<String\> | 選択されたドキュメント ID |
-| `userQuery`           | String         | ユーザーの質問            |
-| `aiResponse`          | String         | AI の回答                 |
-| `sourceDocuments`     | List\<Object\> | 参照ドキュメント情報      |
-| `feedbackType`        | String         | フィードバック種別        |
-| `feedbackReasons`     | List\<String\> | フィードバック理由        |
-| `feedbackComment`     | String         | フィードバックコメント    |
-| `createdAt`           | String         | 作成日時                  |
-| `updatedAt`           | String         | 更新日時                  |
+| 属性                | 型     | 説明                                                    |
+| ------------------- | ------ | ------------------------------------------------------- |
+| `pk` (PK)           | String | 主キー                                                  |
+| `sk` (SK)           | String | ソートキー                                              |
+| `gsi1pk` (GSI-1 PK) | String | グローバルセカンダリインデックス 1 のパーティションキー |
+| `gsi1sk` (GSI-1 SK) | String | グローバルセカンダリインデックス 1 のソートキー         |
+| `sessionId`         | String | セッション ID                                           |
+| `ownerId`           | String | 所有者 ID                                               |
+| `sessionName`       | String | セッション名                                            |
+| `createdAt`         | String | 作成日時                                                |
+| `updatedAt`         | String | 更新日時                                                |
+| `lastMessageAt`     | String | 最終メッセージ日時                                      |
 
 ### レコード種別
 
