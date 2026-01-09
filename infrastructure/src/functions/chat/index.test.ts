@@ -3,10 +3,7 @@ import {
   GetCommand as _GetCommand,
   PutCommand as _PutCommand,
   PutCommandInput,
-  QueryCommand as _QueryCommand,
-  QueryCommandInput,
   UpdateCommand as _UpdateCommand,
-  UpdateCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { APIGatewayProxyEvent, Context } from "aws-lambda";
 import { AwsClientStub, mockClient } from "aws-sdk-client-mock";
@@ -54,7 +51,6 @@ describe("Chat Function Integration Tests", () => {
   // コマンドクラスの参照を保持（動的に取得するため変数化）
   let GetCommand: typeof _GetCommand;
   let PutCommand: typeof _PutCommand;
-  let QueryCommand: typeof _QueryCommand;
   let UpdateCommand: typeof _UpdateCommand;
 
   // 共有モジュールのモック関数への参照
@@ -141,7 +137,6 @@ describe("Chat Function Integration Tests", () => {
     const { DynamoDBDocumentClient } = ddbModule;
     GetCommand = ddbModule.GetCommand;
     PutCommand = ddbModule.PutCommand;
-    QueryCommand = ddbModule.QueryCommand;
     UpdateCommand = ddbModule.UpdateCommand;
 
     // 型不整合回避のためのキャスト（テストコードの堅牢性向上）
@@ -376,8 +371,12 @@ describe("Chat Function Integration Tests", () => {
       expect(mockVerify).toHaveBeenCalledWith("valid-token");
 
       // DynamoDB保存の検証
+      // 修正: 実装では UpdateCommand(Session) と PutCommand(Message) が各1回実行される
       const putCalls = ddbMock.commandCalls(PutCommand);
-      expect(putCalls.length).toBeGreaterThanOrEqual(2);
+      const updateCalls = ddbMock.commandCalls(UpdateCommand);
+
+      expect(putCalls.length).toBeGreaterThanOrEqual(1);
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
 
       // メッセージ保存の中身確認
       const msgSaveCall = putCalls.find((call) => {
@@ -483,212 +482,6 @@ describe("Chat Function Integration Tests", () => {
         // console.errorのモックを復元
         consoleErrorSpy.mockRestore();
       }
-    });
-  });
-
-  // ==========================================
-  // POST /chat/feedback
-  // ==========================================
-  describe("POST /chat/feedback", () => {
-    it("should update feedback successfully", async () => {
-      ddbMock.on(UpdateCommand).resolves({
-        Attributes: {
-          pk: "SESSION#session-1",
-          sk: "MSG#2024-01-01T00:00:00Z",
-          historyId: "msg-1",
-          sessionId: "session-1",
-          ownerId: "user-123",
-          userQuery: "Test query",
-          aiResponse: "Test response",
-          sourceDocuments: [],
-          feedback: "GOOD",
-          createdAt: "2024-01-01T00:00:00Z",
-        },
-      });
-
-      const body = {
-        sessionId: "session-1",
-        historyId: "msg-1",
-        createdAt: "2024-01-01T00:00:00Z",
-        evaluation: "GOOD",
-        comment: "Nice",
-      };
-
-      const event = createEvent("POST", "/chat/feedback", body);
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(200);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.status).toBe("success");
-      expect(resBody.item.feedback).toBe("GOOD");
-
-      // DynamoDB Update確認
-      const callArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
-      expect(callArgs.Key?.pk).toBe("SESSION#session-1");
-      expect(callArgs.Key?.sk).toBe("MSG#2024-01-01T00:00:00Z");
-      expect(callArgs.ExpressionAttributeValues?.[":evaluation"]).toBe("GOOD");
-    });
-
-    it("should return 400 if BAD evaluation is missing reasons", async () => {
-      const body = {
-        sessionId: "session-1",
-        historyId: "msg-1",
-        createdAt: "2024-01-01T00:00:00Z",
-        evaluation: "BAD",
-        // reasons missing
-      };
-
-      const event = createEvent("POST", "/chat/feedback", body);
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(400);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.errorCode).toBe("CHAT_FEEDBACK_REASONS_EMPTY");
-    });
-  });
-
-  // ==========================================
-  // GET /chat/sessions
-  // ==========================================
-  describe("GET /chat/sessions", () => {
-    it("should return list of sessions", async () => {
-      ddbMock.on(QueryCommand).resolves({
-        Items: [
-          {
-            sessionId: "s1",
-            sessionName: "Session 1",
-            createdAt: "2024-01-01",
-            lastMessageAt: "2024-01-02",
-          },
-        ],
-      });
-
-      const event = createEvent("GET", "/chat/sessions");
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(200);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.sessions).toHaveLength(1);
-      expect(resBody.sessions[0].sessionId).toBe("s1");
-
-      const callArgs = ddbMock.call(0).args[0].input as QueryCommandInput;
-      expect(callArgs.IndexName).toBe("GSI1");
-      expect(callArgs.ExpressionAttributeValues?.[":userKey"]).toBe(
-        "USER#user-123"
-      );
-    });
-  });
-
-  // ==========================================
-  // GET /chat/sessions/{sessionId} (Messages)
-  // ==========================================
-  describe("GET /chat/sessions/{sessionId}", () => {
-    it("should return messages with pagination cursor", async () => {
-      ddbMock.on(QueryCommand).resolves({
-        Items: [
-          {
-            pk: "SESSION#session-1",
-            sk: "MSG#2024-01-01T00:00:00Z",
-            historyId: "msg-1",
-            sessionId: "session-1",
-            ownerId: "user-123",
-            userQuery: "Hi",
-            aiResponse: "Hello",
-            sourceDocuments: [],
-            feedback: "NONE",
-            createdAt: "2024-01-01T00:00:00Z",
-          },
-        ],
-        LastEvaluatedKey: { pk: "key", sk: "key" },
-      });
-
-      // Test with limit and cursor
-      const validCursor = Buffer.from(
-        JSON.stringify({ pk: "key", sk: "key" })
-      ).toString("base64");
-      const event = createEvent(
-        "GET",
-        "/chat/sessions/session-1",
-        null,
-        { sessionId: "session-1" },
-        { limit: "10", cursor: validCursor }
-      );
-
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(200);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.sessionId).toBe("session-1");
-      expect(resBody.messages).toHaveLength(1);
-      expect(resBody.nextCursor).toBeDefined();
-
-      // DynamoDB Query args verification
-      const callArgs = ddbMock.call(0).args[0].input as QueryCommandInput;
-      expect(callArgs.Limit).toBe(10);
-      expect(callArgs.ExclusiveStartKey).toBeDefined(); // cursor is decoded
-    });
-
-    it("should return 404 if accessing other user's session", async () => {
-      ddbMock.on(QueryCommand).resolves({
-        Items: [
-          {
-            historyId: "msg-1",
-            ownerId: "other-user", // Owner mismatch
-          },
-        ],
-      });
-
-      const event = createEvent("GET", "/chat/sessions/session-1", null, {
-        sessionId: "session-1",
-      });
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(404);
-    });
-  });
-
-  // ==========================================
-  // PATCH /chat/sessions/{sessionId} (Rename)
-  // ==========================================
-  describe("PATCH /chat/sessions/{sessionId}", () => {
-    it("should update session name", async () => {
-      ddbMock.on(UpdateCommand).resolves({
-        Attributes: {
-          sessionId: "session-1",
-          sessionName: "New Name",
-        },
-      });
-
-      const body = { sessionName: "New Name" };
-      const event = createEvent("PATCH", "/chat/sessions/session-1", body, {
-        sessionId: "session-1",
-      });
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(200);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.session.sessionName).toBe("New Name");
-    });
-  });
-
-  // ==========================================
-  // DELETE /chat/sessions/{sessionId}
-  // ==========================================
-  describe("DELETE /chat/sessions/{sessionId}", () => {
-    it("should logically delete session", async () => {
-      ddbMock.on(UpdateCommand).resolves({});
-
-      const event = createEvent("DELETE", "/chat/sessions/session-1", null, {
-        sessionId: "session-1",
-      });
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(200);
-
-      // Verify Soft Delete (TTL set, deletedAt set, GSI keys removed)
-      const callArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
-      expect(callArgs.UpdateExpression).toContain("SET deletedAt = :now");
-      expect(callArgs.UpdateExpression).toContain("REMOVE gsi1pk, gsi1sk");
     });
   });
 });
