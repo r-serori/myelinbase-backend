@@ -268,7 +268,8 @@ async function deleteSession(
       sk: "META",
     },
     ConditionExpression: "ownerId = :ownerId",
-    UpdateExpression: "SET deletedAt = :now, ttl = :ttl REMOVE gsi1pk, gsi1sk",
+    UpdateExpression: "SET deletedAt = :now, #ttl = :ttl REMOVE gsi1pk, gsi1sk",
+    ExpressionAttributeNames: { "#ttl": "ttl" },
     ExpressionAttributeValues: {
       ":ownerId": ownerId,
       ":now": new Date().toISOString(),
