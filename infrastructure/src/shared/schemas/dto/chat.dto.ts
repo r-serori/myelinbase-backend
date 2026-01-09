@@ -80,8 +80,6 @@ export const UIMessagePartSchema = z
   .discriminatedUnion("type", [TextUIPartSchema, SourceDocumentUIPartSchema])
   .openapi("UIMessagePart");
 
-export type UIMessagePartDto = z.infer<typeof UIMessagePartSchema>;
-
 export const UIMessageSchema = z
   .object({
     id: z.string().optional(),
@@ -89,8 +87,6 @@ export const UIMessageSchema = z
     parts: z.array(UIMessagePartSchema),
   })
   .openapi("UIMessage");
-
-export type UIMessageDto = z.infer<typeof UIMessageSchema>;
 
 export const ChatStreamRequestSchema = z
   .object({
@@ -293,8 +289,6 @@ export const MessageSummarySchema = z
   })
   .openapi("MessageSummary");
 
-export type MessageSummaryDto = z.infer<typeof MessageSummarySchema>;
-
 export const GetSessionsResponseSchema = z
   .object({
     sessions: z.array(ChatSessionSchema),
@@ -321,29 +315,17 @@ export const UpdateSessionNameResponseSchema = z
   })
   .openapi("UpdateSessionNameResponse");
 
-export type UpdateSessionNameResponseDto = z.infer<
-  typeof UpdateSessionNameResponseSchema
->;
-
 export const DeleteSessionResponseSchema = z
   .object({
     sessionId: z.string(),
   })
   .openapi("DeleteSessionResponse");
 
-export type DeleteSessionResponseDto = z.infer<
-  typeof DeleteSessionResponseSchema
->;
-
 export const SubmitFeedbackResponseSchema = z
   .object({
     item: ChatMessageSchema,
   })
   .openapi("SubmitFeedbackResponse");
-
-export type SubmitFeedbackResponseDto = z.infer<
-  typeof SubmitFeedbackResponseSchema
->;
 
 export const ChatStreamErrorResponseSchema = z
   .object({

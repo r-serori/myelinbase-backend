@@ -2,16 +2,13 @@ import { QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { APIGatewayProxyEvent } from "aws-lambda";
 
 import {
-  DeleteSessionResponseDto,
   GetSessionMessagesQueryParamsDto,
   GetSessionMessagesResponseDto,
   GetSessionsResponseDto,
   SubmitFeedbackRequestDto,
   SubmitFeedbackRequestSchema,
-  SubmitFeedbackResponseDto,
   UpdateSessionNameRequestDto,
   UpdateSessionNameRequestSchema,
-  UpdateSessionNameResponseDto,
 } from "../../shared/schemas/dto/chat.dto";
 import {
   ChatMessageEntity,
@@ -56,11 +53,15 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
       event.body,
       SubmitFeedbackRequestSchema
     );
-    return await submitFeedback(body, ownerId);
+    await submitFeedback(body, ownerId);
+    return { statusCode: 204 };
   }
 
   if (httpMethod === "GET" && path === "/chat/sessions") {
-    return await getSessions(ownerId);
+    const response = await getSessions(ownerId);
+    return {
+      body: response,
+    };
   }
 
   if (path.startsWith("/chat/sessions/")) {
@@ -72,11 +73,14 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
     }
 
     if (httpMethod === "GET") {
-      return await getSessionMessages(
+      const response = await getSessionMessages(
         sessionId,
         ownerId,
         (queryStringParameters || {}) as GetSessionMessagesQueryParamsDto
       );
+      return {
+        body: response,
+      };
     }
 
     if (httpMethod === "PATCH") {
@@ -84,11 +88,13 @@ export const handler = apiHandler(async (event: APIGatewayProxyEvent) => {
         event.body,
         UpdateSessionNameRequestSchema
       );
-      return await updateSessionName(sessionId, ownerId, body.sessionName);
+      await updateSessionName(sessionId, ownerId, body.sessionName);
+      return { statusCode: 204 };
     }
 
     if (httpMethod === "DELETE") {
-      return await deleteSession(sessionId, ownerId);
+      await deleteSession(sessionId, ownerId);
+      return { statusCode: 204 };
     }
   }
 
@@ -119,13 +125,9 @@ function extractOwnerId(event: APIGatewayProxyEvent): string {
 async function submitFeedback(
   body: SubmitFeedbackRequestDto,
   ownerId: string
-): Promise<SubmitFeedbackResponseDto> {
+): Promise<void> {
   const { sessionId, historyId, createdAt, evaluation, comment, reasons } =
     body;
-
-  if (evaluation === "BAD" && (!reasons || reasons.length === 0)) {
-    throw new AppError(400, ErrorCode.CHAT_FEEDBACK_REASONS_EMPTY);
-  }
 
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
@@ -144,15 +146,9 @@ async function submitFeedback(
       ":reasons": reasons || null,
       ":now": new Date().toISOString(),
     },
-    ReturnValues: "ALL_NEW",
   });
 
-  const result = await docClient.send(command);
-  const updatedItem = result.Attributes as ChatMessageEntity;
-
-  return {
-    item: toMessageDTO(updatedItem),
-  };
+  await docClient.send(command);
 }
 
 /**
@@ -237,7 +233,7 @@ async function updateSessionName(
   sessionId: string,
   ownerId: string,
   sessionName: string
-): Promise<UpdateSessionNameResponseDto> {
+): Promise<void> {
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
     Key: {
@@ -252,15 +248,9 @@ async function updateSessionName(
       ":name": sessionName.trim(),
       ":now": new Date().toISOString(),
     },
-    ReturnValues: "ALL_NEW",
   });
 
-  const result = await docClient.send(command);
-  const updatedSession = result.Attributes as ChatSessionEntity;
-
-  return {
-    session: toSessionDTO(updatedSession),
-  };
+  await docClient.send(command);
 }
 
 /**
@@ -269,7 +259,7 @@ async function updateSessionName(
 async function deleteSession(
   sessionId: string,
   ownerId: string
-): Promise<DeleteSessionResponseDto> {
+): Promise<void> {
   const ttl = Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60;
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
@@ -287,6 +277,4 @@ async function deleteSession(
   });
 
   await docClient.send(command);
-
-  return { sessionId };
 }

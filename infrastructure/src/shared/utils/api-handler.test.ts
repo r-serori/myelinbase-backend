@@ -73,7 +73,7 @@ describe("API Handler Utils", () => {
 
   describe("apiHandler (Standard)", () => {
     it("should return 200 with formatted body on success", async () => {
-      const logic = () => Promise.resolve({ message: "success" });
+      const logic = () => Promise.resolve({ body: { message: "success" } });
       const wrappedHandler = apiHandler(logic);
 
       const response = await wrappedHandler(createEvent(), mockContext);

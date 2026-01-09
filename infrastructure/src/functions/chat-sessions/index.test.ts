@@ -258,32 +258,14 @@ describe("Chat Function Integration Tests", () => {
       const event = createEvent("POST", "/chat/feedback", body);
       const result = await invokeHandler(event);
 
-      expect(result.statusCode).toBe(200);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.item.feedback).toBe("GOOD");
+      expect(result.statusCode).toBe(204);
+      expect(result.body).toBe("{}");
 
       // DynamoDB Update確認
       const callArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
       expect(callArgs.Key?.pk).toBe("SESSION#session-1");
       expect(callArgs.Key?.sk).toBe("MSG#2024-01-01T00:00:00Z");
       expect(callArgs.ExpressionAttributeValues?.[":evaluation"]).toBe("GOOD");
-    });
-
-    it("should return 400 if BAD evaluation is missing reasons", async () => {
-      const body = {
-        sessionId: "session-1",
-        historyId: "msg-1",
-        createdAt: "2024-01-01T00:00:00Z",
-        evaluation: "BAD",
-        // reasons missing
-      };
-
-      const event = createEvent("POST", "/chat/feedback", body);
-      const result = await invokeHandler(event);
-
-      expect(result.statusCode).toBe(400);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.errorCode).toBe("CHAT_FEEDBACK_REASONS_EMPTY");
     });
   });
 
@@ -405,9 +387,8 @@ describe("Chat Function Integration Tests", () => {
       });
       const result = await invokeHandler(event);
 
-      expect(result.statusCode).toBe(200);
-      const resBody = JSON.parse(result.body);
-      expect(resBody.session.sessionName).toBe("New Name");
+      expect(result.statusCode).toBe(204);
+      expect(result.body).toBe("{}");
     });
   });
 
@@ -423,7 +404,8 @@ describe("Chat Function Integration Tests", () => {
       });
       const result = await invokeHandler(event);
 
-      expect(result.statusCode).toBe(200);
+      expect(result.statusCode).toBe(204);
+      expect(result.body).toBe("{}");
 
       // Verify Soft Delete (TTL set, deletedAt set, GSI keys removed)
       const callArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;

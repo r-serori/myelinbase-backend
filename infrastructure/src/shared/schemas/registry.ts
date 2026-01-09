@@ -48,15 +48,6 @@ registry.register(
   ChatDTO.GetSessionMessagesResponseSchema
 );
 registry.register(
-  "UpdateSessionNameResponse",
-  ChatDTO.UpdateSessionNameResponseSchema
-);
-registry.register("DeleteSessionResponse", ChatDTO.DeleteSessionResponseSchema);
-registry.register(
-  "SubmitFeedbackResponse",
-  ChatDTO.SubmitFeedbackResponseSchema
-);
-registry.register(
   "ChatStreamErrorResponse",
   ChatDTO.ChatStreamErrorResponseSchema
 );
@@ -124,7 +115,6 @@ registry.register(
 );
 registry.register("BatchDeleteResult", DocumentDTO.BatchDeleteResultSchema);
 registry.register("BatchDeleteResponse", DocumentDTO.BatchDeleteResponseSchema);
-registry.register("UpdateTagsResponse", DocumentDTO.UpdateTagsResponseSchema);
 registry.register(
   "UploadRequestErrorResponse",
   DocumentDTO.UploadRequestErrorResponseSchema
@@ -232,11 +222,8 @@ registry.registerPath({
     },
   },
   responses: {
-    200: {
-      description: "Feedback submitted",
-      content: {
-        "application/json": { schema: ChatDTO.SubmitFeedbackResponseSchema },
-      },
+    204: {
+      description: "Feedback submitted successfully",
     },
     400: {
       description: "Bad Request",
@@ -345,11 +332,8 @@ registry.registerPath({
     },
   },
   responses: {
-    200: {
-      description: "Session updated",
-      content: {
-        "application/json": { schema: ChatDTO.UpdateSessionNameResponseSchema },
-      },
+    204: {
+      description: "Session name updated successfully",
     },
     400: {
       description: "Bad Request",
@@ -385,11 +369,8 @@ registry.registerPath({
     params: z.object({ sessionId: z.string() }),
   },
   responses: {
-    200: {
-      description: "Session deleted",
-      content: {
-        "application/json": { schema: ChatDTO.DeleteSessionResponseSchema },
-      },
+    204: {
+      description: "Session deleted successfully",
     },
     404: {
       description: "Not Found",
@@ -646,11 +627,8 @@ registry.registerPath({
     },
   },
   responses: {
-    200: {
-      description: "Tags updated",
-      content: {
-        "application/json": { schema: DocumentDTO.UpdateTagsResponseSchema },
-      },
+    204: {
+      description: "Tags updated successfully",
     },
     400: {
       description: "Bad Request",
