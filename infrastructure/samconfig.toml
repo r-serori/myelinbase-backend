@@ -19,7 +19,7 @@ fail_on_empty_changeset = false
 parameter_overrides = [
   "Stage=dev",
   "ProjectName=myelinbase-backend",
-  "UseBedrock=false",
+  "UseBedrock=true",
   "PineconeApiKeyParameterName=/myelinbase/dev/pinecone-api-key",
   "PineconeIndexName=myelinbase-documents"
 ]

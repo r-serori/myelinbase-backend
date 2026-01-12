@@ -1,3 +1,5 @@
+// src/functions/chat/index.ts
+
 import { PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { APIGatewayProxyEvent } from "aws-lambda";
@@ -12,6 +14,12 @@ import {
   getPineconeApiKey,
   searchVectorsByOwner,
 } from "../../shared/clients/pinecone";
+import {
+  buildRAGPrompt,
+  ContextDocument,
+  extractAnswerFromStream,
+  parseThinkingResponse,
+} from "../../shared/prompts/rag-prompt-builder";
 import {
   ChatStreamRequestDto,
   ChatStreamRequestSchema,
@@ -37,11 +45,18 @@ import {
   UI_MESSAGE_STREAM_CONTENT_TYPE,
 } from "../../shared/utils/stream-helper";
 
+// ============================================
+// Configuration
+// ============================================
+
 const TABLE_NAME = process.env.TABLE_NAME!;
 const IS_LOCAL_STAGE = process.env.STAGE! === "local";
 const USE_BEDROCK = process.env.USE_BEDROCK! === "true";
 const USER_POOL_ID = process.env.USER_POOL_ID!;
 const CLIENT_ID = process.env.CLIENT_ID!;
+
+// RAG Options
+const ENABLE_THINKING = process.env.ENABLE_THINKING === "true";
 
 const docClient = createDynamoDBClient();
 
@@ -75,17 +90,19 @@ export const handler = streamApiHandler(async (event, streamHelper) => {
 
 async function extractOwnerId(event: APIGatewayProxyEvent): Promise<string> {
   if (IS_LOCAL_STAGE) return "user-001";
-  try {
-    const authHeader =
-      event.headers?.Authorization || event.headers?.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) throw new Error();
-    const token = authHeader.split(" ")[1];
-    const payload = await verifier?.verify(token);
-    if (!payload) throw new Error();
-    return payload.sub;
-  } catch {
+  const authHeader =
+    event.headers?.Authorization || event.headers?.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
     throw new AppError(401, ErrorCode.PERMISSION_DENIED);
   }
+
+  const token = authHeader.split(" ")[1];
+  const payload = await verifier?.verify(token);
+  if (!payload) {
+    throw new AppError(401, ErrorCode.PERMISSION_DENIED);
+  }
+
+  return payload.sub;
 }
 
 /**
@@ -97,15 +114,15 @@ async function chatStream(
   ownerId: string
 ): Promise<void> {
   const { sessionId, redoHistoryId } = body;
-  const query = extractQueryFromRequest(body);
+  const query = extractQuery(body);
   const createdAt = new Date().toISOString();
 
-  const responseStream = streamHelper.init(200, UI_MESSAGE_STREAM_CONTENT_TYPE);
+  const stream = streamHelper.init(200, UI_MESSAGE_STREAM_CONTENT_TYPE);
 
   try {
     if (USE_BEDROCK) {
       await processWithBedrock(
-        responseStream,
+        stream,
         sessionId,
         query,
         ownerId,
@@ -114,7 +131,7 @@ async function chatStream(
       );
     } else {
       await processWithMockData(
-        responseStream,
+        stream,
         sessionId,
         query,
         ownerId,
@@ -123,17 +140,12 @@ async function chatStream(
       );
     }
   } catch (error: unknown) {
-    handleStreamError(responseStream, error, ownerId, sessionId);
-  } finally {
-    responseStream.end();
+    handleError(stream, error, ownerId, sessionId);
+    stream.end();
   }
 }
-
-/**
- * Bedrockを使用した処理フロー
- */
 async function processWithBedrock(
-  responseStream: StreamWriter,
+  stream: StreamWriter,
   sessionId: string,
   query: string,
   ownerId: string,
@@ -144,62 +156,97 @@ async function processWithBedrock(
   let citations: SourceDocumentDto[] = [];
 
   try {
-    const embeddings = await generateEmbeddings([query]);
+    // 1. Embed query
+    const [queryEmbedding] = await generateEmbeddings([query]);
+
+    // 2. Search Pinecone
     const apiKey = await getPineconeApiKey();
-    const pineconeClient = createPineconeClient(apiKey);
-    const retrieveResults = await searchVectorsByOwner(
-      pineconeClient,
-      embeddings[0],
+    const pinecone = createPineconeClient(apiKey);
+    const results = await searchVectorsByOwner(
+      pinecone,
+      queryEmbedding,
       ownerId,
       5
     );
 
-    const uniqueTexts = new Set<string>();
-    const contextParts: string[] = [];
-    retrieveResults.forEach((match) => {
+    // 3. Deduplicate and build context
+    const seen = new Set<string>();
+    const documents: ContextDocument[] = [];
+
+    for (const match of results) {
       const text = match.metadata.text || "";
-      if (text && !uniqueTexts.has(text)) {
-        uniqueTexts.add(text);
-        contextParts.push(text);
+      if (text && !seen.has(text)) {
+        seen.add(text);
+        documents.push({
+          text,
+          fileName: match.metadata.fileName || "unknown",
+          documentId: match.metadata.documentId || `doc-${Date.now()}`,
+          score: match.score || 0,
+        });
       }
-    });
-
-    citations = retrieveResults
-      .filter((m) => m.metadata.text)
-      .map(
-        (m): SourceDocumentDto => ({
-          text: m.metadata.text!,
-          fileName: m.metadata.fileName || "unknown",
-          score: m.score || 0,
-          documentId: m.metadata.documentId || `doc-${Date.now()}`,
-        })
-      );
-
-    // 引用情報を送信
-    streamCitations(responseStream, citations);
-
-    const prompt = buildPrompt(contextParts.join("\n\n"), query);
-    for await (const chunk of invokeClaudeStream(prompt)) {
-      fullText += chunk;
-      streamTextDelta(responseStream, chunk);
     }
 
-    const messageHistoryId = await saveHistoryOptimized(
+    // 4. Build citations for frontend
+    citations = documents.map((doc) => ({
+      text: doc.text,
+      fileName: doc.fileName,
+      documentId: doc.documentId,
+      score: doc.score,
+    }));
+    streamCitations(stream, citations);
+
+    // 5. Generate RAG prompt
+    const { systemPrompt, userPrompt } = buildRAGPrompt({
+      documents,
+      query,
+      enableThinking: ENABLE_THINKING,
+    });
+
+    // 6. Stream Claude response
+    let lastStreamedLength = 0;
+
+    for await (const chunk of invokeClaudeStream({
+      prompt: userPrompt,
+      systemPrompt,
+      maxTokens: 2048,
+    })) {
+      fullText += chunk;
+
+      if (ENABLE_THINKING) {
+        // Only stream <answer> content, skip <thinking>
+        const answerContent = extractAnswerFromStream(fullText);
+        const newContent = answerContent.substring(lastStreamedLength);
+        if (newContent) {
+          streamTextDelta(stream, newContent);
+          lastStreamedLength = answerContent.length;
+        }
+      } else {
+        streamTextDelta(stream, chunk);
+      }
+    }
+
+    // 7. Parse final answer for storage
+    const finalAnswer = ENABLE_THINKING
+      ? parseThinkingResponse(fullText).answer
+      : fullText;
+
+    // 8. Save history
+    const historyId = await saveHistory(
       sessionId,
       ownerId,
       query,
-      fullText,
+      finalAnswer,
       citations,
       createdAt,
       redoHistoryId
     );
 
-    streamSessionInfo(responseStream, sessionId, messageHistoryId, createdAt);
-    streamFinish(responseStream, "stop");
+    streamSessionInfo(stream, sessionId, historyId, createdAt);
+    streamFinish(stream, "stop");
   } catch (error) {
-    // エラー時も途中までのログを保存
-    if (fullText.length > 0) {
-      await saveHistoryOptimized(
+    // Save partial response on error
+    if (fullText) {
+      await saveHistory(
         sessionId,
         ownerId,
         query,
@@ -225,11 +272,8 @@ async function processWithBedrock(
   }
 }
 
-/**
- * モックデータを使用した処理フロー
- */
 async function processWithMockData(
-  responseStream: StreamWriter,
+  stream: StreamWriter,
   sessionId: string,
   query: string,
   ownerId: string,
@@ -238,33 +282,34 @@ async function processWithMockData(
 ): Promise<void> {
   const mockCitations: SourceDocumentDto[] = [
     {
-      text: "Mock Citation Text 1",
-      fileName: "mock.pdf",
+      text: "Mock document 1",
+      fileName: "mock1.pdf",
       documentId: "1",
       score: 0.95,
     },
     {
-      text: "Mock Citation Text 2",
-      fileName: "doc2.pdf",
+      text: "Mock document 2",
+      fileName: "mock2.pdf",
       documentId: "2",
-      score: 0.92,
+      score: 0.88,
     },
   ];
 
-  streamCitations(responseStream, mockCitations);
+  streamCitations(stream, mockCitations);
 
-  const mockResponse =
-    '**はい、TypeScriptでも完全に可能です！**\n実は、LangChainにはPython版と双璧をなす**JavaScript/TypeScript版のライブラリ（LangChain.js）**が存在します。\n\nむしろ、Webアプリケーション（Next.jsやReactなど）にAIを組み込む場合は、**LangChain.js（TypeScript）の方が親和性が高く、主流**になりつつあります。\n\n------\n\n### 1. TypeScript版「LangChain.js」の特徴\n\n  * **機能はほぼ同等:** Python版にある機能のほとんどが移植されており、最新のアップデート（LangGraphなど）もほぼ同時にサポートされます。\n  * **Web開発に最適:** Vercel (Edge Functions) や Cloudflare Workers などのサーバーレス環境で動かしやすい設計になっています。\n  * **型安全性:** TypeScriptで書かれているため、型定義がしっかりしており、開発体験（DX）が非常に良いです。\n\n-----\n\n### 2. TypeScriptでのコード例\n\n先ほどのPythonコードと同じ処理（会社名を考える）をTypeScriptで書くと以下のようになります。\n※ 記述方法は非常に似ています。\n\n```typescript\nimport { ChatOpenAI } from "@langchain/openai";\nimport { PromptTemplate } from "@langchain/core/prompts";\n\n// 1. LLMの定義\nconst model = new ChatOpenAI({\n  modelName: "gpt-3.5-turbo",\n  temperature: 0,\n});\n\n// 2. プロンプトのテンプレート作成\nconst prompt = PromptTemplate.fromTemplate(\n  "{product}を作るための、キャッチーな会社名を1つ考えてください。"\n);\n\n// 3. チェーンの作成（pipeを使って繋ぎます）\nconst chain = prompt.pipe(model);\n\n// 実行（非同期処理なのでawaitを使います）\nasync function main() {\n  const response = await chain.invoke({ product: "高性能なAIロボット" });\n  console.log(response.content); \n  // 出力例: "ロボ・インテリジェンス"\n}\n\nmain();\n```\n\n-----\n\n### 3. Python版とどう使い分けるべき？\n\n| 比較項目 | Python版 (LangChain) | TypeScript版 (LangChain.js) |\n| :--- | :--- | :--- |\n| **主な用途** | データ分析、実験、バックエンドAPIサーバー | Webアプリ（Next.js等）、フロントエンド、Edge |\n| **強み** | AI/データサイエンス系のライブラリ(Pandas等)が豊富 | 既存のWeb開発スタック(JS/TS)にそのまま組み込れる |\n| **実行環境** | Docker, 一般的なサーバー | Node.js, ブラウザ, Vercel Edge, Deno |\n\n**結論：**\n普段からフロントエンドやNode.jsで開発されているのであれば、無理にPythonを覚える必要はなく、**TypeScript版（LangChain.js）を使うのがおすすめ**です。\n\n-----\n\n**次はどのようなサポートが必要ですか？**\n\n  * **TypeScript (Node.js) 環境でのインストール手順**を知りたいですか？\n  * **Next.js** と組み合わせた具体的な実装例が見たいですか？\n  * **Vercel AI SDK**（LangChainとよく比較されるTS向けツール）との違いを知りたいですか？';
-  const chunks = mockResponse.match(/[\s\S]{1,5}/g) || [];
+  const response =
+    '**はい、TypeScriptでも完全に可能です！**\n実は、LangChainにはPython版と双璧をなす**JavaScript/TypeScript版のライブラリ（LangChain.js）**が存在します。\n\nむしろ、Webアプリケーション（Next.jsやReactなど）にAIを組み込む場合は、**LangChain.js（TypeScript）の方が親和性が高く、主流**になりつつあります。\n\n------\n\n### 1. TypeScript版「LangChain.js」の特徴\n\n  * **機能はほぼ同等:** Python版にある機能のほとんどが移植されており、最新のアップデート（LangGraphなど）もほぼ同時にサポートされます。\n  * **Web開発に最適:** Vercel (Edge Functions) や Cloudflare Workers などのサーバーレス環境で動かしやすい設計になっています。\n  * **型安全性:** TypeScriptで書かれているため、型定義がしっかりしており、開発体験（DX）が非常に良いです。\n\n-----\n\n### 2. TypeScriptでのコード例\n\n先ほどのPythonコードと同じ処理（会社名を考える）をTypeScriptで書くと以下のようになります。\n※ 記述方法は非常に似ています。\n\n```typescript\nimport { ChatOpenAI } from "@langchain/openai";\nimport { PromptTemplate } from "@langchain/core/prompts";\n\n// 1. LLMの定義\nconst model = new ChatOpenAI({\n  modelName: "gpt-3.5-turbo",\n  temperature: 0,\n});\n\n// 2. プロンプトのテンプレート作成\nconst prompt = PromptTemplate.fromTemplate(\n  "{product}を作るための、キャッチーな会社名を1つ考えてください。"\n);\n\n// 3. チェーンの作成（pipeを使って繋ぎます）\nconst chain = prompt.pipe(model);\n\n// 実行（非同期処理なのでawaitを使います）\nasync function main() {\n  const response = await chain.invoke({ product: "高性能なAIロボット" });\n  console.log(response.content); \n  // 出力例: "ロボ・インテリジェンス"\n}\n\nmain();\n```\n\n-----\n\n### 3. Python版とどう使い分けるべき？\n\n| 比較項目 | Python版 (LangChain) | TypeScript版 (LangChain.js) |\n| :--- | :--- | :--- |\n| **主な用途** | データ分析、実験、バックエンドAPIサーバー | Webアプリ（Next.js等）、フロントエンド、Edge |\n| **強み** | AI/データサイエンス系のライブラリ(Pandas等)が豊富 | 既存のWeb開発スタック(JS/TS)にそのまま組み込れる |\n| **実行環境** | Docker, 一般的なサーバー | Node.js, ブラウザ, Vercel Edge, Deno |\n\n**結論：**\n普段からフロントエンドやNode.jsで開発されているのであれば、無理にPythonを覚える必要はなく、**TypeScript版（LangChain.js）を使うのがおすすめ**です。\n\n-----\n\n**次はどのようなサポートが必要ですか？**\n\n  * **TypeScript (Node.js) 環境でのインストール手順**を知りたいですか？\n  * **Next.js** と組み合わせた具体的な実装例が見たいですか？\n  * **Vercel AI SDK**（LangChainとよく比較されるTS向けツール）との違いを知りたいですか？' +
+    `\n\nあなたの質問: ${query}`;
+  const chunks = response.match(/[\s\S]{1,5}/g) || [];
 
   let fullText = "";
   for (const chunk of chunks) {
     fullText += chunk;
-    streamTextDelta(responseStream, chunk);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    streamTextDelta(stream, chunk);
+    await new Promise((r) => setTimeout(r, 50));
   }
 
-  const messageHistoryId = await saveHistoryOptimized(
+  const historyId = await saveHistory(
     sessionId,
     ownerId,
     query,
@@ -274,14 +319,11 @@ async function processWithMockData(
     redoHistoryId
   );
 
-  streamSessionInfo(responseStream, sessionId, messageHistoryId, createdAt);
-  streamFinish(responseStream, "stop");
+  streamSessionInfo(stream, sessionId, historyId, createdAt);
+  streamFinish(stream, "stop");
 }
 
-/**
- * 履歴保存処理
- */
-async function saveHistoryOptimized(
+async function saveHistory(
   sessionId: string,
   ownerId: string,
   query: string,
@@ -293,77 +335,74 @@ async function saveHistoryOptimized(
   const historyId = redoHistoryId || randomUUID();
   const sessionName = query.length > 20 ? `${query.slice(0, 20)}...` : query;
 
-  // 1. セッションメタデータの更新
-  const sessionUpdateCommand = new UpdateCommand({
-    TableName: TABLE_NAME,
-    Key: {
-      pk: `SESSION#${sessionId}`,
-      sk: "META",
-    },
-    UpdateExpression: `
-      SET 
-        gsi1pk = if_not_exists(gsi1pk, :userKey),
-        gsi1sk = :createdAt,
-        sessionId = if_not_exists(sessionId, :sessionId),
-        ownerId = if_not_exists(ownerId, :ownerId),
-        sessionName = if_not_exists(sessionName, :sessionName),
-        createdAt = if_not_exists(createdAt, :createdAt),
-        updatedAt = :createdAt,
-        lastMessageAt = :createdAt
-    `,
-    ExpressionAttributeValues: {
-      ":userKey": `USER#${ownerId}`,
-      ":sessionId": sessionId,
-      ":ownerId": ownerId,
-      ":sessionName": sessionName,
-      ":createdAt": createdAt,
-    },
-  });
-
-  // 2. メッセージの保存
-  const messagePutCommand = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: {
-      pk: `SESSION#${sessionId}`,
-      sk: `MSG#${createdAt}`,
-      historyId,
-      sessionId,
-      ownerId,
-      userQuery: query,
-      aiResponse: answer,
-      sourceDocuments: citations,
-      feedback: "NONE",
-      createdAt,
-      updatedAt: createdAt,
-    },
-  });
-
   await Promise.all([
-    docClient.send(sessionUpdateCommand),
-    docClient.send(messagePutCommand),
+    // Update session metadata
+    docClient.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: `SESSION#${sessionId}`, sk: "META" },
+        UpdateExpression: `
+          SET 
+            gsi1pk = if_not_exists(gsi1pk, :userKey),
+            gsi1sk = :createdAt,
+            sessionId = if_not_exists(sessionId, :sessionId),
+            ownerId = if_not_exists(ownerId, :ownerId),
+            sessionName = if_not_exists(sessionName, :sessionName),
+            createdAt = if_not_exists(createdAt, :createdAt),
+            updatedAt = :createdAt,
+            lastMessageAt = :createdAt
+        `,
+        ExpressionAttributeValues: {
+          ":userKey": `USER#${ownerId}`,
+          ":sessionId": sessionId,
+          ":ownerId": ownerId,
+          ":sessionName": sessionName,
+          ":createdAt": createdAt,
+        },
+      })
+    ),
+    // Save message
+    docClient.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: {
+          pk: `SESSION#${sessionId}`,
+          sk: `MSG#${createdAt}`,
+          historyId,
+          sessionId,
+          ownerId,
+          userQuery: query,
+          aiResponse: answer,
+          sourceDocuments: citations,
+          feedback: "NONE",
+          createdAt,
+          updatedAt: createdAt,
+        },
+      })
+    ),
   ]);
 
   return historyId;
 }
 
-/**
- * リクエストからユーザーのクエリテキストを抽出
- * UIMessage形式に対応 (parts配列からtextタイプを抽出)
- */
-function extractQueryFromRequest(body: ChatStreamRequestDto): string {
-  const lastUserMessage = body.messages
+// ============================================
+// Utilities
+// ============================================
+
+function extractQuery(body: ChatStreamRequestDto): string {
+  const lastMessage = body.messages
     .slice()
     .reverse()
     .find((m) => m.role === "user");
 
-  if (!lastUserMessage?.parts) {
+  if (!lastMessage?.parts) {
     throw new AppError(400, ErrorCode.MISSING_PARAMETER);
   }
 
   const isTextPart = (p: unknown): p is TextUIPartDto =>
     typeof p === "object" && p !== null && (p as TextUIPartDto).type === "text";
 
-  const text = lastUserMessage.parts
+  const text = lastMessage.parts
     .filter(isTextPart)
     .map((p) => p.text)
     .join("");
@@ -375,34 +414,22 @@ function extractQueryFromRequest(body: ChatStreamRequestDto): string {
   return text;
 }
 
-function buildPrompt(context: string, query: string): string {
-  return `以下のコンテキストを使用して質問に日本語で回答してください。
-もしコンテキストに答えが含まれていない場合は、その旨を伝えつつ、あなたの知識で回答してください。
-
-コンテキスト:
-${context}
-
-質問: ${query}
-
-回答:`;
-}
-
-function handleStreamError(
+function handleError(
   stream: StreamWriter,
   error: unknown,
   ownerId: string,
   sessionId: string
-) {
-  if (error instanceof Error) {
-    logger("ERROR", "Chat stream failed", {
-      error: error.message,
-      ownerId,
-      sessionId,
-    });
-  }
+): void {
+  logger("ERROR", "Chat stream failed", {
+    error: error instanceof Error ? error.message : String(error),
+    ownerId,
+    sessionId,
+  });
+
   const code =
     error instanceof AppError
       ? error.errorCode
       : ErrorCode.INTERNAL_SERVER_ERROR;
+
   streamError(stream, code || "INTERNAL_SERVER_ERROR");
 }

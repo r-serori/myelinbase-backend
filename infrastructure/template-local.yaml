@@ -44,6 +44,10 @@ Parameters:
     Type: String
     Default: "amazon.titan-embed-text-v1"
 
+  EnableThinking:
+    Type: String
+    Default: "false"
+
 # ============================================
 # Globals
 # ============================================
@@ -115,6 +119,7 @@ Resources:
           USER_POOL_ID: "local-user-pool"
           CLIENT_ID: "local-client-id"
           MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+          ENABLE_THINKING: !Ref EnableThinking
       Policies:
         - Version: "2012-10-17"
           Statement:
