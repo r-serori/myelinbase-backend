@@ -46,6 +46,10 @@ Parameters:
     Type: String
     Default: "amazon.titan-embed-text-v1"
 
+  EnableThinking:
+    Type: String
+    Default: "false"
+
 # ============================================
 # Globals
 # ============================================
@@ -288,6 +292,7 @@ Resources:
           TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
           USER_POOL_ID: !Ref CognitoUserPool
           CLIENT_ID: !Ref CognitoUserPoolClient
+          ENABLE_THINKING: !Ref EnableThinking
       Policies:
         - Version: "2012-10-17"
           Statement:

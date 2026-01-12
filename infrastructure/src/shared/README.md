@@ -19,6 +19,8 @@ src/shared/
 ├── clients/            # 外部サービスクライアント
 │   ├── bedrock.ts      # AWS Bedrock (Claude, Titan)
 │   └── pinecone.ts     # Pinecone Vector DB
+├── prompts/            # RAG プロンプト生成
+│   ├── rag-prompt-builder.ts # RAG プロンプトビルダー
 ├── schemas/            # Zod スキーマ (バリデーション & OpenAPI)
 │   ├── common.ts       # 共通スキーマ
 │   ├── document.ts     # ドキュメント関連スキーマ
@@ -29,9 +31,9 @@ src/shared/
 │   └── chat.ts         # チャット型 (z.infer で生成)
 └── utils/              # 汎用ユーティリティ
     ├── api-handler.ts  # API Gateway ハンドラーラッパー
+    ├── dto-mapper.ts   # DTO マッパー
     ├── dynamodb.ts     # DynamoDB クライアント & ヘルパー
     ├── s3.ts           # S3 クライアント & 署名付きURL
-    ├── rag.ts          # RAG 関連ユーティリティ
     ├── text-processing.ts  # テキスト抽出 & チャンク分割
     └── embeddings.ts   # エンベディング生成
 ```

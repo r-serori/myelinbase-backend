@@ -330,10 +330,14 @@ describe("Chat Function Integration Tests", () => {
       ]);
 
       // 2. Claude Stream モック
-      mockInvokeClaudeStream.mockImplementation(function* (prompt: string) {
+      mockInvokeClaudeStream.mockImplementation(function* (options: {
+        prompt: string;
+        systemPrompt?: string;
+      }) {
         // プロンプトに重複排除されたコンテキストが含まれているか確認
-        const countA = (prompt.match(/Parent Content A/g) || []).length;
-        const countB = (prompt.match(/Parent Content B/g) || []).length;
+        // 注意: options.prompt でアクセス（旧: prompt）
+        const countA = (options.prompt.match(/Parent Content A/g) || []).length;
+        const countB = (options.prompt.match(/Parent Content B/g) || []).length;
 
         if (countA === 1 && countB === 1) {
           yield "Hello, ";
