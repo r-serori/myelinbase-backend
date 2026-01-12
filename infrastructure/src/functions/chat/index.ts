@@ -141,6 +141,7 @@ async function chatStream(
     }
   } catch (error: unknown) {
     handleError(stream, error, ownerId, sessionId);
+  } finally {
     stream.end();
   }
 }
