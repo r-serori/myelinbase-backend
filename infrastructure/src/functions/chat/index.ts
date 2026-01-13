@@ -220,6 +220,12 @@ async function processWithBedrock(
             sourceId: citation.documentId,
             mediaType: "text/plain",
             title: citation.fileName,
+            providerMetadata: JSON.parse(
+              JSON.stringify({
+                score: citation.score,
+                text: citation.text,
+              })
+            ),
           });
         }
 
