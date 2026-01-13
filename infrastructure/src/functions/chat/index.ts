@@ -73,7 +73,14 @@ const verifier =
  * Chat Stream Lambda Handler
  */
 export const handler = streamApiHandler(async (event, streamHelper) => {
-  const { httpMethod, path } = event;
+  const httpMethod =
+    (event.requestContext as { http?: { method?: string } })?.http?.method ||
+    event.httpMethod;
+  const path =
+    (event as { rawPath?: string }).rawPath ||
+    (event.requestContext as { http?: { path?: string } })?.http?.path ||
+    event.path;
+
   const ownerId = await extractOwnerId(event);
 
   if (httpMethod === "POST" && path === "/chat/stream") {
