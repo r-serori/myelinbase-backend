@@ -81,18 +81,6 @@ export const handler = streamApiHandler(async (event, streamHelper) => {
     (event.requestContext as { http?: { path?: string } })?.http?.path ||
     event.path;
 
-  console.log(
-    JSON.stringify({
-      debug: "EVENT_STRUCTURE",
-      httpMethod,
-      path,
-      rawPath: (event as { rawPath?: string }).rawPath,
-      eventPath: event.path,
-      eventHttpMethod: event.httpMethod,
-      requestContextHttp: (event.requestContext as { http?: unknown })?.http,
-    })
-  );
-
   const ownerId = await extractOwnerId(event);
 
   if (

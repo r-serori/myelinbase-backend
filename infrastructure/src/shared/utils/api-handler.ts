@@ -245,9 +245,10 @@ type StreamLogicFunction = (
 /**
  * ストリーミング用ヘッダーを生成
  * Content-Type が application/json の場合はストリーミング関連ヘッダーを除外
+ * Lambda Function URL の場合は CORS ヘッダーをスキップ（AWS が自動で追加するため）
  */
 function buildStreamHeaders(
-  corsHeaders: CorsHeaders,
+  corsHeaders: CorsHeaders | null,
   contentType: string
 ): Record<string, string | boolean> {
   const isJsonResponse = contentType.includes("application/json");
@@ -255,14 +256,14 @@ function buildStreamHeaders(
   // JSON レスポンスの場合はストリーミング関連ヘッダーを除外
   if (isJsonResponse) {
     return {
-      ...corsHeaders,
+      ...(corsHeaders || {}),
       "Content-Type": contentType,
     };
   }
 
   // ストリーミングレスポンス（text/plain 等）の場合は v3.x ヘッダーを含める
   return {
-    ...corsHeaders,
+    ...(corsHeaders || {}),
     "Content-Type": contentType,
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
@@ -276,7 +277,6 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
   const IS_LOCAL_STAGE = process.env.STAGE === "local";
 
   if (!IS_LOCAL_STAGE) {
-    // AWS Lambda Response Streaming
     return awslambda.streamifyResponse(
       async (
         event: APIGatewayProxyEvent,
@@ -286,18 +286,6 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
         let isHeadersSent = false;
         let currentStream: LambdaWritableStream = responseStream;
 
-        const origin = event.headers?.origin || event.headers?.Origin || "";
-        const corsHeaders = getCorsHeaders(origin);
-
-        if (!corsHeaders) {
-          currentStream = awslambda.HttpResponseStream.from(responseStream, {
-            statusCode: 403,
-          });
-          currentStream.write(JSON.stringify({ message: "Forbidden" }));
-          currentStream.end();
-          return;
-        }
-
         const streamHelper: StreamHelper = {
           init: (
             statusCode = 200,
@@ -305,10 +293,9 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           ): StreamWriter => {
             if (isHeadersSent) return currentStream;
 
-            // Content-Type に応じてヘッダーを構築
             const metadata: LambdaStreamMetadata = {
               statusCode,
-              headers: buildStreamHeaders(corsHeaders, contentType),
+              headers: buildStreamHeaders(null, contentType),
             };
 
             currentStream = awslambda.HttpResponseStream.from(
@@ -321,12 +308,6 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
         };
 
         try {
-          if (getHttpMethod(event) === "OPTIONS") {
-            streamHelper.init(200);
-            currentStream.end();
-            return;
-          }
-
           await logic(event, streamHelper, context);
         } catch (rawError: unknown) {
           const error = normalizeError(rawError);
@@ -354,7 +335,6 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
               statusCode: error.statusCode,
               headers: {
                 "Content-Type": "application/json",
-                ...corsHeaders,
               },
             };
             currentStream = awslambda.HttpResponseStream.from(
