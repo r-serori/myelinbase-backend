@@ -4,12 +4,9 @@
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { Pinecone, RecordMetadata } from "@pinecone-database/pinecone";
 
+import { DocumentMetadataEntity } from "../schemas/entities/document.entity";
 import { ErrorCode } from "../types/error-code";
-import {
-  PineconeVector,
-  VectorSearchMetadata,
-  VectorSearchResult,
-} from "../types/pinecone";
+import { PineconeVector, VectorSearchResult } from "../types/pinecone";
 import { AppError } from "../utils/api-handler";
 
 const ssmClient = new SSMClient({});
@@ -145,7 +142,7 @@ export async function searchVectors(
     response.matches?.map((match) => ({
       id: match.id,
       score: match.score || 0,
-      metadata: match.metadata as unknown as VectorSearchMetadata,
+      metadata: match.metadata as unknown as DocumentMetadataEntity,
     })) || []
   );
 }

@@ -4,20 +4,12 @@
 import type { DocumentMetadataEntity } from "../schemas/entities/document.entity";
 
 /**
- * Pineconeベクター検索結果のメタデータ型
- */
-export interface VectorSearchMetadata extends DocumentMetadataEntity {
-  bucket: string;
-  key: string;
-}
-
-/**
  * Pineconeベクター検索結果型
  */
 export interface VectorSearchResult {
   id: string;
   score: number;
-  metadata: VectorSearchMetadata;
+  metadata: DocumentMetadataEntity;
 }
 
 /**
