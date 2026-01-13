@@ -11,14 +11,17 @@ import {
   UIMessageChunkDto,
 } from "../schemas/dto/chat.dto";
 
+// ============================================
+// AI SDK 6+ UI Message Stream Protocol (SSE)
+// https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
+// ============================================
+
 /**
- * Vercel AI SDK v3.x UI Message Stream Protocol 準拠
- * https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
- *
- * UIMessageChunk を NDJSON 形式でフォーマット
+ * SSE形式でチャンクをフォーマット
+ * Format: data: {json}\n\n
  */
-function formatChunk(chunk: UIMessageChunkDto): string {
-  return JSON.stringify(chunk) + "\n";
+function formatSSE(chunk: UIMessageChunkDto): string {
+  return `data: ${JSON.stringify(chunk)}\n\n`;
 }
 
 /**
@@ -26,7 +29,7 @@ function formatChunk(chunk: UIMessageChunkDto): string {
  */
 export function streamTextDelta(writer: StreamWriter, textDelta: string): void {
   const chunk: TextDeltaChunkDto = { type: "text-delta", textDelta };
-  writer.write(formatChunk(chunk));
+  writer.write(formatSSE(chunk));
 }
 
 /**
@@ -42,30 +45,28 @@ export function streamSource(
     type: "source",
     source: { sourceId, title, url },
   };
-  writer.write(formatChunk(chunk));
+  writer.write(formatSSE(chunk));
 }
 
 /**
  * 引用情報を送信
- * 1. 各引用を source として送信
- * 2. 詳細データを data 配列として送信
  */
 export function streamCitations(
   writer: StreamWriter,
   citations: SourceDocumentDto[]
 ): void {
-  // 1. 各引用を source として送信
+  // 各引用を source として送信
   citations.forEach((citation, index) => {
     streamSource(writer, `source-${index}`, citation.text || "");
   });
 
-  // 2. 詳細データを data 配列として送信
+  // 詳細データを data 配列として送信
   const payload: CitationsPayloadDto = { type: "citations", citations };
   const chunk: DataChunkDto = {
     type: "data",
     data: [payload],
   };
-  writer.write(formatChunk(chunk));
+  writer.write(formatSSE(chunk));
 }
 
 /**
@@ -87,7 +88,7 @@ export function streamSessionInfo(
     type: "data",
     data: [payload],
   };
-  writer.write(formatChunk(chunk));
+  writer.write(formatSSE(chunk));
 }
 
 /**
@@ -98,7 +99,7 @@ export function streamFinish(
   finishReason: "stop" | "error" | "length" = "stop"
 ): void {
   const chunk: FinishChunkDto = { type: "finish", finishReason };
-  writer.write(formatChunk(chunk));
+  writer.write(formatSSE(chunk));
 }
 
 /**
@@ -106,7 +107,18 @@ export function streamFinish(
  */
 export function streamError(writer: StreamWriter, errorText: string): void {
   const chunk: ErrorChunkDto = { type: "error", errorText };
-  writer.write(formatChunk(chunk));
+  writer.write(formatSSE(chunk));
 }
 
-export const UI_MESSAGE_STREAM_CONTENT_TYPE = "text/plain; charset=utf-8";
+/**
+ * ストリーム終了マーカー [DONE] を送信
+ * AI SDK 6+ 必須
+ */
+export function streamDone(writer: StreamWriter): void {
+  writer.write("data: [DONE]\n\n");
+}
+
+/**
+ * AI SDK 6+ SSE Content-Type
+ */
+export const UI_MESSAGE_STREAM_CONTENT_TYPE = "text/event-stream";

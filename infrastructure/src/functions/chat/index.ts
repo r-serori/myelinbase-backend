@@ -38,6 +38,7 @@ import {
 import { createDynamoDBClient } from "../../shared/utils/dynamodb";
 import {
   streamCitations,
+  streamDone,
   streamError,
   streamFinish,
   streamSessionInfo,
@@ -254,6 +255,7 @@ async function processWithBedrock(
 
     streamSessionInfo(stream, sessionId, historyId, createdAt);
     streamFinish(stream, "stop");
+    streamDone(stream);
   } catch (error) {
     // Save partial response on error
     if (fullText) {
@@ -332,6 +334,7 @@ async function processWithMockData(
 
   streamSessionInfo(stream, sessionId, historyId, createdAt);
   streamFinish(stream, "stop");
+  streamDone(stream);
 }
 
 async function saveHistory(
@@ -443,4 +446,5 @@ function handleError(
       : ErrorCode.INTERNAL_SERVER_ERROR;
 
   streamError(stream, code || "INTERNAL_SERVER_ERROR");
+  streamDone(stream);
 }

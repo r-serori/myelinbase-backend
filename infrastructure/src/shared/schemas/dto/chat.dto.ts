@@ -102,13 +102,18 @@ export const ChatStreamRequestSchema = z
 
 export type ChatStreamRequestDto = z.infer<typeof ChatStreamRequestSchema>;
 
+// =================================================================
+// AI SDK 6+ UI Message Stream Protocol (SSE)
+// https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol
+//
+// Format: Server-Sent Events (SSE)
+// - Each chunk: data: {json}\n\n
+// - Stream terminator: data: [DONE]\n\n
+// =================================================================
+
 /**
- * UI Message Stream Protocol - レスポンスチャンク型
- * Vercel AI SDK v3.x 準拠
- * https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#ui-message-stream-protocol
- *
  * テキストデルタチャンク
- * SDK期待形式: {"type":"text-delta","textDelta":"..."}
+ * SSE形式: data: {"type":"text-delta","textDelta":"..."}\n\n
  */
 export const TextDeltaChunkSchema = z
   .object({
@@ -121,7 +126,7 @@ export type TextDeltaChunkDto = z.infer<typeof TextDeltaChunkSchema>;
 
 /**
  * ソースチャンク
- * SDK期待形式: {"type":"source","source":{...}}
+ * SSE形式: data: {"type":"source","source":{...}}\n\n
  */
 export const SourceChunkSchema = z
   .object({
@@ -138,7 +143,7 @@ export type SourceChunkDto = z.infer<typeof SourceChunkSchema>;
 
 /**
  * エラーチャンク
- * SDK期待形式: {"type":"error","errorText":"..."}
+ * SSE形式: data: {"type":"error","errorText":"..."}\n\n
  */
 export const ErrorChunkSchema = z
   .object({
@@ -151,7 +156,7 @@ export type ErrorChunkDto = z.infer<typeof ErrorChunkSchema>;
 
 /**
  * 終了チャンク
- * SDK期待形式: {"type":"finish","finishReason":"stop"|"error"|"length"}
+ * SSE形式: data: {"type":"finish","finishReason":"stop"|"error"|"length"}\n\n
  */
 export const FinishChunkSchema = z
   .object({
@@ -164,7 +169,7 @@ export type FinishChunkDto = z.infer<typeof FinishChunkSchema>;
 
 /**
  * データチャンク（カスタムデータ用）
- * SDK期待形式: {"type":"data","data":[...]}
+ * SSE形式: data: {"type":"data","data":[...]}\n\n
  */
 export const DataChunkSchema = z
   .object({
@@ -176,7 +181,7 @@ export const DataChunkSchema = z
 export type DataChunkDto = z.infer<typeof DataChunkSchema>;
 
 /**
- * Stream Data Payloads - Orvalで型生成される
+ * セッション情報ペイロード (data チャンク内)
  */
 export const SessionInfoPayloadSchema = z
   .object({
@@ -193,7 +198,7 @@ export const SessionInfoPayloadSchema = z
 export type SessionInfoPayloadDto = z.infer<typeof SessionInfoPayloadSchema>;
 
 /**
- * 引用情報ペイロード
+ * 引用情報ペイロード (data チャンク内)
  */
 export const CitationsPayloadSchema = z
   .object({
@@ -206,7 +211,7 @@ export type CitationsPayloadDto = z.infer<typeof CitationsPayloadSchema>;
 
 /**
  * UIメッセージチャンク（全種類の union）
- * Vercel AI SDK v3.x UI Message Stream Protocol 準拠
+ * AI SDK 6+ UI Message Stream Protocol (SSE) 準拠
  */
 export const UIMessageChunkSchema = z
   .union([

@@ -145,7 +145,7 @@ registry.registerPath({
   path: "/chat/stream",
   summary: "Chat Streaming",
   description:
-    "Send messages and receive a streaming response using Vercel AI SDK v3.x UI Message Stream Protocol (NDJSON format).",
+    "Send messages and receive a streaming response using AI SDK 6+ UI Message Stream Protocol (SSE format).",
   security: [{ [bearerAuth.name]: [] }],
   request: {
     body: {
@@ -159,21 +159,18 @@ registry.registerPath({
   responses: {
     200: {
       description:
-        "Successful stream response (NDJSON - Newline Delimited JSON). Each line is a UIMessageChunk object.",
+        "Successful stream response (Server-Sent Events). Each event is a UIMessageChunk object prefixed with 'data: ' and terminated with '\\n\\n'. Stream ends with 'data: [DONE]\\n\\n'.",
       content: {
-        "text/plain; charset=utf-8": {
+        "text/event-stream": {
           schema: z.string().openapi({
             description:
-              "NDJSON stream of UIMessageChunk objects. Each line contains a JSON object with a 'type' field.",
+              "SSE stream of UIMessageChunk objects. Format: data: {json}\\n\\n",
             example:
-              '{"type":"text-delta","textDelta":"Hello"}\n{"type":"source","source":{"sourceId":"src-1","title":"Doc","url":""}}\n{"type":"data","data":[{"type":"session_info","sessionId":"...","historyId":"...","createdAt":"..."}]}\n{"type":"finish","finishReason":"stop"}',
+              'data: {"type":"text-delta","textDelta":"Hello"}\\n\\ndata: {"type":"source","source":{"sourceId":"src-1","title":"Doc","url":""}}\\n\\ndata: {"type":"data","data":[{"type":"session_info","sessionId":"...","historyId":"...","createdAt":"..."}]}\\n\\ndata: {"type":"finish","finishReason":"stop"}\\n\\ndata: [DONE]\\n\\n',
           }),
         },
       },
       headers: z.object({
-        "X-Vercel-AI-UI-Message-Stream": z
-          .literal("v1")
-          .openapi({ description: "UI Message Stream Protocol version" }),
         "X-Accel-Buffering": z
           .literal("no")
           .openapi({ description: "Disable proxy buffering" }),
