@@ -69,7 +69,7 @@ registry.register(
 );
 
 registry.register("TextUIPart", ChatDTO.TextUIPartSchema);
-registry.register("SourceDocumentUIPart", ChatDTO.SourceDocumentUIPartSchema);
+registry.register("DataCitationUIPart", ChatDTO.DataCitationUIPartSchema);
 registry.register("UIMessagePart", ChatDTO.UIMessagePartSchema);
 registry.register("UIMessage", ChatDTO.UIMessageSchema);
 

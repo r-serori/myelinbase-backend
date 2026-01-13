@@ -66,18 +66,20 @@ export const TextUIPartSchema = z
 
 export type TextUIPartDto = z.infer<typeof TextUIPartSchema>;
 
-export const SourceDocumentUIPartSchema = z
+export const DataCitationUIPartSchema = z
   .object({
-    type: z.literal("source-document"),
-    sourceId: z.string(),
-    mediaType: z.string(),
-    title: z.string(),
-    filename: z.string().optional(),
+    type: z.literal("data-citation"),
+    data: z.object({
+      sourceId: z.string(),
+      fileName: z.string(),
+      text: z.string(),
+      score: z.number(),
+    }),
   })
-  .openapi("SourceDocumentUIPart");
+  .openapi("DataCitationUIPart");
 
 export const UIMessagePartSchema = z
-  .discriminatedUnion("type", [TextUIPartSchema, SourceDocumentUIPartSchema])
+  .discriminatedUnion("type", [TextUIPartSchema, DataCitationUIPartSchema])
   .openapi("UIMessagePart");
 
 export const UIMessageSchema = z

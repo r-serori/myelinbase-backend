@@ -216,16 +216,13 @@ async function processWithBedrock(
         // 5. Stream source documents (RAG citations)
         for (const citation of citations) {
           writer.write({
-            type: "source-document",
-            sourceId: citation.documentId,
-            mediaType: "text/plain",
-            title: citation.fileName,
-            providerMetadata: JSON.parse(
-              JSON.stringify({
-                score: citation.score,
-                text: citation.text,
-              })
-            ),
+            type: "data-citation",
+            data: {
+              sourceId: citation.documentId,
+              fileName: citation.fileName,
+              text: citation.text,
+              score: citation.score,
+            },
           });
         }
 
@@ -357,10 +354,13 @@ async function processWithMockData(
       // Stream source documents
       for (const citation of mockCitations) {
         writer.write({
-          type: "source-document",
-          sourceId: citation.documentId,
-          mediaType: "application/pdf",
-          title: citation.fileName,
+          type: "data-citation",
+          data: {
+            sourceId: citation.documentId,
+            fileName: citation.fileName,
+            text: citation.text,
+            score: citation.score,
+          },
         });
       }
 
