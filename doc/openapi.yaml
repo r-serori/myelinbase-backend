@@ -128,35 +128,41 @@ components:
       required:
         - type
         - text
-    SourceDocumentUIPart:
+    DataCitationUIPart:
       type: object
       properties:
         type:
           type: string
           enum:
-            - source-document
-        sourceId:
-          type: string
-        mediaType:
-          type: string
-        title:
-          type: string
-        filename:
-          type: string
+            - data-citation
+        data:
+          type: object
+          properties:
+            sourceId:
+              type: string
+            fileName:
+              type: string
+            text:
+              type: string
+            score:
+              type: number
+          required:
+            - sourceId
+            - fileName
+            - text
+            - score
       required:
         - type
-        - sourceId
-        - mediaType
-        - title
+        - data
     UIMessagePart:
       oneOf:
         - $ref: "#/components/schemas/TextUIPart"
-        - $ref: "#/components/schemas/SourceDocumentUIPart"
+        - $ref: "#/components/schemas/DataCitationUIPart"
       discriminator:
         propertyName: type
         mapping:
           text: "#/components/schemas/TextUIPart"
-          source-document: "#/components/schemas/SourceDocumentUIPart"
+          data-citation: "#/components/schemas/DataCitationUIPart"
     UIMessage:
       type: object
       properties:
