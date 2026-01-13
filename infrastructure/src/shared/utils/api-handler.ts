@@ -38,6 +38,17 @@ declare const awslambda: {
   };
 };
 
+/**
+ * Extract HTTP method from event
+ */
+function getHttpMethod(event: APIGatewayProxyEvent): string {
+  return (
+    (event.requestContext as { http?: { method?: string } })?.http?.method ||
+    event.httpMethod ||
+    ""
+  );
+}
+
 export class AppError extends Error {
   constructor(
     public statusCode: number,
@@ -310,7 +321,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
         };
 
         try {
-          if (event.httpMethod === "OPTIONS") {
+          if (getHttpMethod(event) === "OPTIONS") {
             streamHelper.init(200);
             currentStream.end();
             return;
