@@ -4,6 +4,7 @@ import {
   buildRAGPrompt,
   ContextDocument,
   extractAnswerFromStream,
+  extractCitedFileNames,
   parseThinkingResponse,
   SYSTEM_PROMPT_RAG_CITATIONS,
   SYSTEM_PROMPT_RAG_THINKING,
@@ -186,6 +187,47 @@ Myelin Baseはドキュメント管理プラットフォームです。
       const text = "<thinking>Analysis</thinking><answer>Result";
       const result = extractAnswerFromStream(text);
       expect(result).toBe("Result");
+    });
+  });
+
+  describe("extractCitedFileNames", () => {
+    it("should extract simple file citation", () => {
+      const text = "これは重要です [出典: manual.pdf]";
+      const files = extractCitedFileNames(text);
+      expect(files).toEqual(["manual.pdf"]);
+    });
+
+    it("should extract multiple files separated by comma", () => {
+      const text = "複数の出典があります [出典: doc1.pdf, doc2.txt]";
+      const files = extractCitedFileNames(text);
+      expect(files).toEqual(["doc1.pdf", "doc2.txt"]);
+    });
+
+    it("should extract Japanese filenames with symbols", () => {
+      const text =
+        "ハラスメントの禁止、副業・兼業の条件などについても就業規則で定められています。[出典: 情報セキュリティ・コンプライアンスガイドライン.pdf]";
+      const files = extractCitedFileNames(text);
+      expect(files).toEqual([
+        "情報セキュリティ・コンプライアンスガイドライン.pdf",
+      ]);
+    });
+
+    it("should handle Japanese separators (、)", () => {
+      const text = "参照: [出典: file1.pdf、file2.pdf]";
+      const files = extractCitedFileNames(text);
+      expect(files).toEqual(["file1.pdf", "file2.pdf"]);
+    });
+
+    it("should handle multiple citation tags", () => {
+      const text = "[出典: a.pdf] によると... また、[出典: b.pdf] によると...";
+      const files = extractCitedFileNames(text);
+      expect(files).toEqual(["a.pdf", "b.pdf"]);
+    });
+
+    it("should ignore duplicates", () => {
+      const text = "[出典: a.pdf] ... [出典: a.pdf]";
+      const files = extractCitedFileNames(text);
+      expect(files).toEqual(["a.pdf"]);
     });
   });
 });

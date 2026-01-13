@@ -215,18 +215,20 @@ export function extractAnswerFromStream(fullText: string): string {
 /**
  * テキストから引用されたファイル名を抽出する
  * 想定フォーマット: [出典: filename] または [出典: filename1, filename2]
+ * 対応区切り文字: カンマ(,), 読点(、), 全角カンマ(，)
  */
 export function extractCitedFileNames(text: string): string[] {
   const citedFiles = new Set<string>();
   // 正規表現: [出典: ... ] を検索
   // 閉じカッコ ] までの文字列をキャプチャ
+  // [^\]]+ は「]」以外の任意の文字（日本語、記号含む）にマッチします
   const regex = /\[出典:\s*([^\]]+)\]/g;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
     if (match[1]) {
-      // カンマ区切りに対応し、前後の空白を除去
-      const files = match[1].split(",").map((f) => f.trim());
+      // カンマ、読点、全角カンマで分割し、前後の空白を除去
+      const files = match[1].split(/[,、，]/).map((f) => f.trim());
       files.forEach((f) => {
         if (f) citedFiles.add(f);
       });
