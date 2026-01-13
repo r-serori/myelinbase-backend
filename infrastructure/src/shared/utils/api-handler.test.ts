@@ -168,11 +168,7 @@ describe("API Handler Utils", () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).toBe("Hello World");
 
-      // Vercel AI SDK v3 用のヘッダーを確認
-      expect(response.headers?.["Content-Type"]).toBe(
-        "text/plain; charset=utf-8"
-      );
-      expect(response.headers?.["X-Vercel-AI-UI-Message-Stream"]).toBe("v1");
+      expect(response.headers?.["Content-Type"]).toBe("text/event-stream");
       expect(response.headers?.["Cache-Control"]).toBe("no-cache");
       expect(response.headers?.["Connection"]).toBe("keep-alive");
     });

@@ -367,7 +367,9 @@ describe("Chat Function Integration Tests", () => {
 
       // レスポンスボディ (NDJSON / Vercel AI SDK v3) の検証
       expect(body).toContain('"type":"text-delta"');
-      expect(body).toContain('"type":"finish"');
+      // 実装では text-end と data-session-info を送信する
+      expect(body).toContain('"type":"text-end"');
+      expect(body).toContain('"type":"data-session-info"');
       expect(body).toContain("Hello, ");
       expect(body).toContain("World!");
 

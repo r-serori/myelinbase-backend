@@ -65,7 +65,6 @@ function normalizeError(error: unknown): AppError {
     return error;
   }
 
-  // Error型のインスタンスかチェック
   if (error instanceof Error) {
     if (error.name === "ConditionalCheckFailedException") {
       return new AppError(404, ErrorCode.RESOURCE_NOT_FOUND);
@@ -76,7 +75,6 @@ function normalizeError(error: unknown): AppError {
     return unknownError;
   }
 
-  // Error型でない場合
   const unknownError = new AppError(500, ErrorCode.INTERNAL_SERVER_ERROR);
   unknownError.message = String(error);
   return unknownError;
@@ -244,8 +242,7 @@ type StreamLogicFunction = (
 
 /**
  * ストリーミング用ヘッダーを生成
- * Content-Type が application/json の場合はストリーミング関連ヘッダーを除外
- * Lambda Function URL の場合は CORS ヘッダーをスキップ（AWS が自動で追加するため）
+ * AI SDK 6+ Data Stream Protocol (SSE) 対応
  */
 function buildStreamHeaders(
   corsHeaders: CorsHeaders | null,
@@ -261,14 +258,15 @@ function buildStreamHeaders(
     };
   }
 
-  // ストリーミングレスポンス（text/plain 等）の場合は v3.x ヘッダーを含める
+  // AI SDK 6+ Data Stream Protocol (SSE) 用ヘッダー
+  // 重要: x-vercel-ai-ui-message-stream: v1 が必須
   return {
     ...(corsHeaders || {}),
     "Content-Type": contentType,
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
-    // v3.x で必要なヘッダー
-    "X-Vercel-AI-UI-Message-Stream": "v1",
+    // AI SDK 6+ で必須のヘッダー
+    "x-vercel-ai-ui-message-stream": "v1",
     "X-Accel-Buffering": "no",
   };
 }
@@ -289,7 +287,7 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
         const streamHelper: StreamHelper = {
           init: (
             statusCode = 200,
-            contentType = "text/plain; charset=utf-8"
+            contentType = "text/event-stream"
           ): StreamWriter => {
             if (isHeadersSent) return currentStream;
 
@@ -314,15 +312,15 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
           logApiError(error, event, error.statusCode, error.errorCode);
 
           if (isHeadersSent) {
-            // 既にヘッダー送信済みの場合は、v3.x 形式でエラーを送信
-            // { "type": "error", "errorText": "..." }
+            // AI SDK 6+ エラー形式で送信
             try {
               currentStream.write(
-                JSON.stringify({
+                `data: ${JSON.stringify({
                   type: "error",
                   errorText: error.errorCode || "UNKNOWN_ERROR",
-                }) + "\n"
+                })}\n\n`
               );
+              currentStream.write("data: [DONE]\n\n");
             } catch {
               // 書き込み失敗時は無視
             }
@@ -398,11 +396,10 @@ export const streamApiHandler = (logic: StreamLogicFunction) => {
     const streamHelper: StreamHelper = {
       init: (
         statusCode = 200,
-        contentType = "text/plain; charset=utf-8"
+        contentType = "text/event-stream"
       ): StreamWriter => {
         if (isInit) return mockStream;
         responseStatusCode = statusCode;
-        // Content-Type に応じてヘッダーを構築
         responseHeaders = buildStreamHeaders(corsHeaders, contentType);
         isInit = true;
         return mockStream;
