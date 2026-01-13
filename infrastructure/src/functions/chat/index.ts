@@ -20,6 +20,7 @@ import {
   buildRAGPrompt,
   ContextDocument,
   extractAnswerFromStream,
+  extractCitedFileNames,
   parseThinkingResponse,
 } from "../../shared/prompts/rag-prompt-builder";
 import {
@@ -206,25 +207,14 @@ async function processWithBedrock(
         }
 
         // 4. Build citations for frontend
-        citations = documents.map((doc) => ({
-          text: doc.text,
-          fileName: doc.fileName,
-          documentId: doc.documentId,
-          score: doc.score,
-        }));
-
-        // 5. Stream source documents (RAG citations)
-        for (const citation of citations) {
-          writer.write({
-            type: "data-citation",
-            data: {
-              sourceId: citation.documentId,
-              fileName: citation.fileName,
-              text: citation.text,
-              score: citation.score,
-            },
-          });
-        }
+        const candidateCitations: SourceDocumentDto[] = documents.map(
+          (doc) => ({
+            text: doc.text,
+            fileName: doc.fileName,
+            documentId: doc.documentId,
+            score: doc.score,
+          })
+        );
 
         // 6. Generate RAG prompt
         const { systemPrompt, userPrompt } = buildRAGPrompt({
@@ -268,6 +258,26 @@ async function processWithBedrock(
         const finalAnswer = ENABLE_THINKING
           ? parseThinkingResponse(fullText).answer
           : fullText;
+
+        const citedFileNames = extractCitedFileNames(finalAnswer);
+
+        citations = candidateCitations.filter((doc) =>
+          citedFileNames.includes(doc.fileName)
+        );
+
+        citations.sort((a, b) => b.score - a.score);
+
+        for (const citation of citations) {
+          writer.write({
+            type: "data-citation",
+            data: {
+              sourceId: citation.documentId,
+              fileName: citation.fileName,
+              text: citation.text,
+              score: citation.score,
+            },
+          });
+        }
 
         // 9. Save history
         historyId = await saveHistory(
@@ -351,20 +361,7 @@ async function processWithMockData(
 
   const uiStream = createUIMessageStream({
     execute: async ({ writer }) => {
-      // Stream source documents
-      for (const citation of mockCitations) {
-        writer.write({
-          type: "data-citation",
-          data: {
-            sourceId: citation.documentId,
-            fileName: citation.fileName,
-            text: citation.text,
-            score: citation.score,
-          },
-        });
-      }
-
-      // Stream text content
+      // Mock: Stream text content first
       const textBlockId = `text-${randomUUID()}`;
       writer.write({ type: "text-start", id: textBlockId });
 
@@ -383,13 +380,29 @@ async function processWithMockData(
 
       writer.write({ type: "text-end", id: textBlockId });
 
+      const filteredCitations = mockCitations.filter((c) =>
+        response.includes(c.fileName)
+      );
+
+      for (const citation of filteredCitations) {
+        writer.write({
+          type: "data-citation",
+          data: {
+            sourceId: citation.documentId,
+            fileName: citation.fileName,
+            text: citation.text,
+            score: citation.score,
+          },
+        });
+      }
+
       // Save history
       const historyId = await saveHistory(
         sessionId,
         ownerId,
         query,
         fullText,
-        mockCitations,
+        filteredCitations,
         createdAt,
         redoHistoryId
       );

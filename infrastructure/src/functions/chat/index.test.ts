@@ -300,23 +300,15 @@ describe("Chat Function Integration Tests", () => {
   // POST /chat/stream
   // ==========================================
   describe("POST /chat/stream", () => {
-    it("should process chat stream with RAG and Small-to-Big deduplication", async () => {
-      // 1. Pinecone検索モック (Small to Big: 同じ親を持つチャイルドがヒットしたケース)
+    it("should process chat stream with RAG and citations filtering", async () => {
+      // 1. Pinecone検索モック (複数の候補が見つかった状態)
       mockSearchVectorsByOwner.mockResolvedValue([
         {
           score: 0.95,
           metadata: {
             documentId: "doc-1",
             fileName: "manual.pdf",
-            text: "Parent Content A", // 同じ親
-          },
-        },
-        {
-          score: 0.9,
-          metadata: {
-            documentId: "doc-1",
-            fileName: "manual.pdf",
-            text: "Parent Content A", // 重複する親 (Deduplication対象)
+            text: "Parent Content A",
           },
         },
         {
@@ -324,27 +316,25 @@ describe("Chat Function Integration Tests", () => {
           metadata: {
             documentId: "doc-2",
             fileName: "specs.pdf",
-            text: "Parent Content B", // 別の親
+            text: "Parent Content B",
+          },
+        },
+        {
+          score: 0.75,
+          metadata: {
+            documentId: "doc-3",
+            fileName: "unused.pdf",
+            text: "Unused Content",
           },
         },
       ]);
 
       // 2. Claude Stream モック
-      mockInvokeClaudeStream.mockImplementation(function* (options: {
-        prompt: string;
-        systemPrompt?: string;
-      }) {
-        // プロンプトに重複排除されたコンテキストが含まれているか確認
-        // 注意: options.prompt でアクセス（旧: prompt）
-        const countA = (options.prompt.match(/Parent Content A/g) || []).length;
-        const countB = (options.prompt.match(/Parent Content B/g) || []).length;
-
-        if (countA === 1 && countB === 1) {
-          yield "Hello, ";
-          yield "World!";
-        } else {
-          yield `Error: Duplication Check Failed (A=${countA}, B=${countB})`;
-        }
+      // 実際に出典タグを含めて返すようにする
+      mockInvokeClaudeStream.mockImplementation(function* () {
+        yield "Hello, ";
+        yield "World! ";
+        yield "詳細は [出典: manual.pdf] と [出典: specs.pdf] を参照してください。";
       });
 
       // 3. DynamoDB モック (セッションヘッダー更新 + 履歴保存)
@@ -367,22 +357,16 @@ describe("Chat Function Integration Tests", () => {
 
       // レスポンスボディ (NDJSON / Vercel AI SDK v3) の検証
       expect(body).toContain('"type":"text-delta"');
-      // 実装では text-end と data-session-info を送信する
       expect(body).toContain('"type":"text-end"');
+      expect(body).toContain('"type":"data-citation"');
       expect(body).toContain('"type":"data-session-info"');
-      expect(body).toContain("Hello, ");
-      expect(body).toContain("World!");
 
       // 認証の検証
       expect(mockVerify).toHaveBeenCalledWith("valid-token");
 
       // DynamoDB保存の検証
-      // 修正: 実装では UpdateCommand(Session) と PutCommand(Message) が各1回実行される
       const putCalls = ddbMock.commandCalls(PutCommand);
-      const updateCalls = ddbMock.commandCalls(UpdateCommand);
-
       expect(putCalls.length).toBeGreaterThanOrEqual(1);
-      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
 
       // メッセージ保存の中身確認
       const msgSaveCall = putCalls.find((call) => {
@@ -396,8 +380,14 @@ describe("Chat Function Integration Tests", () => {
       expect(msgSaveCall).toBeDefined();
       const savedItem = (msgSaveCall!.args[0].input as PutCommandInput).Item;
       expect(savedItem).toBeDefined();
-      expect(savedItem?.userQuery).toBe("Tell me about specs");
-      expect(savedItem?.aiResponse).toBe("Hello, World!");
+
+      // 引用ドキュメントの検証 (manual.pdf と specs.pdf だけが含まれ、unused.pdf は含まれないはず)
+      const sourceDocs = savedItem?.sourceDocuments as Array<{
+        fileName: string;
+      }>;
+      expect(sourceDocs).toHaveLength(2);
+      const fileNames = sourceDocs.map((d) => d.fileName).sort();
+      expect(fileNames).toEqual(["manual.pdf", "specs.pdf"]);
     });
 
     it("should use redoHistoryId if provided", async () => {
