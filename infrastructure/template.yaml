@@ -323,13 +323,6 @@ Resources:
                 - aws-marketplace:Subscribe
                 - aws-marketplace:Unsubscribe
               Resource: "*"
-      Events:
-        ChatStream:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ServerlessApiGateway
-            Path: /chat/stream
-            Method: POST
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
