@@ -54,13 +54,13 @@ You help users find information from their documents with proper source citation
 
 <rules>
 1. Base answers ONLY on the provided content within the <documents> XML tags.
-2. ALWAYS cite sources using format: [出典: index. filename]
-   Example: [出典: 1. manual.pdf]
+2. ALWAYS cite sources using format: [出典index: filename]
+   Example: [出典1: manual.pdf]
 3. Use the "index" attribute specified in the <document> tag.
 4. If no relevant information exists, state:
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
 5. NEVER fabricate information
-6. Multiple sources can be cited: [出典: 1. doc1.pdf, 2. doc2.pdf]
+6. Multiple sources can be cited: [出典1: doc1.pdf] [出典2: doc2.pdf]
 </rules>
 
 <output>
@@ -82,7 +82,7 @@ You analyze documents methodically and provide well-reasoned answers.
 1. First, analyze the context in <thinking> tags
 2. Identify which documents contain relevant information
 3. Provide your final answer in <answer> tags
-4. Use format [出典: index. filename] for citations in <answer>
+4. Use format [出典index: filename] for citations in <answer>
 5. If no relevant information exists, state this in <answer>
 6. NEVER fabricate information
 </rules>
@@ -93,7 +93,7 @@ You analyze documents methodically and provide well-reasoned answers.
 </thinking>
 
 <answer>
-[Final answer in Japanese with citations like [出典: 1. file.pdf]]
+[Final answer in Japanese with citations like [出典1: file.pdf]]
 </answer>
 </format>
 
@@ -141,7 +141,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations in [出典: index. filename] format.`;
+Answer with citations in [出典index: filename] format.`;
 }
 
 /**
@@ -225,38 +225,49 @@ export interface CitationReference {
 /**
  * テキストから引用情報を抽出する
  * 対応フォーマット:
- * - [出典: 1. filename.pdf] (推奨)
- * - [出典: filename.pdf] (フォールバック)
- * - [出典: 1. filename, 2. other.pdf] (複数)
+ * - [出典1: filename.pdf] (新形式・推奨)
  */
 export function extractCitedReferences(text: string): CitationReference[] {
   const references: CitationReference[] = [];
-  // 正規表現: [出典: ... ] を検索
-  const regex = /\[出典:\s*([^\]]+)\]/g;
+  // 正規表現: [出典(数字?): ... ] を検索
+  // match[1]: インデックス番号 (あれば)
+  // match[2]: コンテンツ部分
+  const regex = /\[出典(\d*):\s*([^\]]+)\]/g;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
-    if (match[1]) {
+    const tagIndex = match[1] ? parseInt(match[1], 10) : undefined;
+    const content = match[2];
+
+    if (content) {
       // カンマ、読点、全角カンマで分割
-      const parts = match[1].split(/[,、，]/).map((p) => p.trim());
+      const parts = content.split(/[,、，]/).map((p) => p.trim());
 
       for (const part of parts) {
         if (!part) continue;
 
-        // "1. filename" のような形式を解析
-        // 先頭の数字 + ドットまたは空白 を探す
-        const indexMatch = part.match(/^(\d+)[.\s]+(.*)/);
-
-        if (indexMatch) {
+        if (tagIndex !== undefined) {
+          // タグ自体にインデックスがある場合 ([出典1: ...])
           references.push({
-            index: parseInt(indexMatch[1], 10),
-            text: indexMatch[2].trim(),
-          });
-        } else {
-          // 数字がない場合はテキスト全体をファイル名として扱う
-          references.push({
+            index: tagIndex,
             text: part,
           });
+        } else {
+          // タグにインデックスがない場合 ([出典: ...]) -> コンテンツ内を解析
+          // "1. filename" のような形式を解析
+          const indexMatch = part.match(/^(\d+)[.\s]+(.*)/);
+
+          if (indexMatch) {
+            references.push({
+              index: parseInt(indexMatch[1], 10),
+              text: indexMatch[2].trim(),
+            });
+          } else {
+            // 数字がない場合はテキスト全体をファイル名として扱う
+            references.push({
+              text: part,
+            });
+          }
         }
       }
     }
