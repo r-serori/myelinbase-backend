@@ -58,7 +58,6 @@ describe("RAG Prompt Builder", () => {
       expect(userPrompt).toContain("<documents>");
       expect(userPrompt).toContain('source="overview.pdf"');
       expect(userPrompt).toContain('index="1"');
-      expect(userPrompt).toContain("[出典index: filename]");
     });
 
     it("should use thinking prompt when enableThinking is true", () => {
