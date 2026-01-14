@@ -52,8 +52,8 @@ You help users find information from their documents with proper source citation
 
 <rules>
 1. Base answers ONLY on the provided content within the <documents> XML tags.
-2. ALWAYS cite sources using format: >[出典index: filename]
-   Example: >[出典1: manual.pdf]
+2. ALWAYS cite sources using format: [出典index: filename]
+   Example: [出典1: manual.pdf]
 3. Use the "index" attribute specified in the <document> tag.
 4. If no relevant information exists, state:
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
