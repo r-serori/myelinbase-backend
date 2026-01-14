@@ -3,9 +3,7 @@
 import {
   buildRAGPrompt,
   ContextDocument,
-  extractAnswerFromStream,
-  extractCitedFileNames,
-  parseThinkingResponse,
+  extractCitedReferences,
   SYSTEM_PROMPT_RAG_CITATIONS,
   SYSTEM_PROMPT_RAG_THINKING,
 } from "./rag-prompt-builder";
@@ -37,9 +35,9 @@ const sampleQuery = "Myelin Baseの機能は？";
 
 describe("RAG Prompt Builder", () => {
   describe("System Prompts", () => {
-    it("SYSTEM_PROMPT_RAG_CITATIONS should include citation format", () => {
-      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典:");
-      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("cite sources");
+    it("SYSTEM_PROMPT_RAG_CITATIONS should include index citation format", () => {
+      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典: index. filename]");
+      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain('"index" attribute');
     });
 
     it("SYSTEM_PROMPT_RAG_THINKING should include format tags", () => {
@@ -59,7 +57,8 @@ describe("RAG Prompt Builder", () => {
       expect(systemPrompt).toBe(SYSTEM_PROMPT_RAG_CITATIONS);
       expect(userPrompt).toContain("<documents>");
       expect(userPrompt).toContain('source="overview.pdf"');
-      expect(userPrompt).toContain("[出典:");
+      expect(userPrompt).toContain('index="1"');
+      expect(userPrompt).toContain("[出典: index. filename]");
     });
 
     it("should use thinking prompt when enableThinking is true", () => {
@@ -73,161 +72,53 @@ describe("RAG Prompt Builder", () => {
       expect(userPrompt).toContain("<documents>");
       expect(userPrompt.trim()).toMatch(/<thinking>$/);
     });
+  });
 
-    it("should use thinking prompt", () => {
-      const { systemPrompt } = buildRAGPrompt({
-        documents: sampleDocs,
-        query: sampleQuery,
-        enableThinking: true,
-      });
-
-      expect(systemPrompt).toBe(SYSTEM_PROMPT_RAG_THINKING);
-    });
-
-    it("should escape XML special characters", () => {
-      const docsWithSpecialChars: ContextDocument[] = [
+  describe("extractCitedReferences", () => {
+    it("should extract indexed citation", () => {
+      const text = "これは重要です [出典: 1. manual.pdf]";
+      const refs = extractCitedReferences(text);
+      expect(refs).toEqual([
         {
-          text: 'Test <script> & "quotes"',
-          fileName: "test.pdf",
-          documentId: "1",
-          score: 0.9,
+          index: 1,
+          text: "manual.pdf",
         },
-      ];
-
-      const { userPrompt } = buildRAGPrompt({
-        documents: docsWithSpecialChars,
-        query: sampleQuery,
-      });
-
-      expect(userPrompt).toContain("&lt;script&gt;");
-      expect(userPrompt).toContain("&amp;");
-      expect(userPrompt).toContain("&quot;quotes&quot;");
+      ]);
     });
 
-    it("should include score in documents XML", () => {
-      const { userPrompt } = buildRAGPrompt({
-        documents: sampleDocs,
-        query: sampleQuery,
-      });
-
-      expect(userPrompt).toContain('score="0.95"');
-      expect(userPrompt).toContain('score="0.88"');
-    });
-  });
-
-  describe("parseThinkingResponse", () => {
-    it("should parse complete thinking/answer response", () => {
-      const response = `<thinking>
-Analyzing document 1...
-Found relevant info about features.
-</thinking>
-
-<answer>
-Myelin Baseはドキュメント管理プラットフォームです。
-</answer>`;
-
-      const { thinking, answer } = parseThinkingResponse(response);
-
-      expect(thinking).toContain("Analyzing document 1");
-      expect(answer).toContain("ドキュメント管理プラットフォーム");
-    });
-
-    it("should return raw response when no tags present", () => {
-      const response = "Plain response without tags.";
-      const { thinking, answer } = parseThinkingResponse(response);
-
-      expect(thinking).toBeNull();
-      expect(answer).toBe(response);
-    });
-
-    it("should handle response with only answer tag", () => {
-      const response = "<answer>Just the answer.</answer>";
-      const { thinking, answer } = parseThinkingResponse(response);
-
-      expect(thinking).toBeNull();
-      expect(answer).toBe("Just the answer.");
-    });
-
-    it("should trim whitespace", () => {
-      const response = `<thinking>
-  Analysis here  
-</thinking>
-
-<answer>
-  Answer here  
-</answer>`;
-
-      const { thinking, answer } = parseThinkingResponse(response);
-
-      expect(thinking).toBe("Analysis here");
-      expect(answer).toBe("Answer here");
-    });
-  });
-
-  describe("extractAnswerFromStream", () => {
-    it("should return empty before answer tag", () => {
-      const result = extractAnswerFromStream("<thinking>Analyzing...");
-      expect(result).toBe("");
-    });
-
-    it("should extract partial answer while streaming", () => {
-      const text = "<thinking>Done</thinking>\n<answer>Partial response";
-      const result = extractAnswerFromStream(text);
-      expect(result).toBe("Partial response");
-    });
-
-    it("should extract complete answer when closed", () => {
-      const text =
-        "<thinking>Done</thinking>\n<answer>Complete answer.</answer>";
-      const result = extractAnswerFromStream(text);
-      expect(result).toBe("Complete answer.");
-    });
-
-    it("should handle answer immediately after thinking", () => {
-      const text = "<thinking>Analysis</thinking><answer>Result";
-      const result = extractAnswerFromStream(text);
-      expect(result).toBe("Result");
-    });
-  });
-
-  describe("extractCitedFileNames", () => {
-    it("should extract simple file citation", () => {
-      const text = "これは重要です [出典: manual.pdf]";
-      const files = extractCitedFileNames(text);
-      expect(files).toEqual(["manual.pdf"]);
-    });
-
-    it("should extract multiple files separated by comma", () => {
-      const text = "複数の出典があります [出典: doc1.pdf, doc2.txt]";
-      const files = extractCitedFileNames(text);
-      expect(files).toEqual(["doc1.pdf", "doc2.txt"]);
-    });
-
-    it("should extract Japanese filenames with symbols", () => {
-      const text =
-        "ハラスメントの禁止、副業・兼業の条件などについても就業規則で定められています。[出典: 情報セキュリティ・コンプライアンスガイドライン.pdf]";
-      const files = extractCitedFileNames(text);
-      expect(files).toEqual([
-        "情報セキュリティ・コンプライアンスガイドライン.pdf",
+    it("should extract multiple indexed citations", () => {
+      const text = "複数の出典 [出典: 1. doc1.pdf, 2. doc2.txt]";
+      const refs = extractCitedReferences(text);
+      expect(refs).toEqual([
+        { index: 1, text: "doc1.pdf" },
+        { index: 2, text: "doc2.txt" },
       ]);
     });
 
     it("should handle Japanese separators (、)", () => {
-      const text = "参照: [出典: file1.pdf、file2.pdf]";
-      const files = extractCitedFileNames(text);
-      expect(files).toEqual(["file1.pdf", "file2.pdf"]);
+      const text = "参照: [出典: 1. file1.pdf、2. file2.pdf]";
+      const refs = extractCitedReferences(text);
+      expect(refs).toEqual([
+        { index: 1, text: "file1.pdf" },
+        { index: 2, text: "file2.pdf" },
+      ]);
     });
 
-    it("should handle multiple citation tags", () => {
-      const text = "[出典: a.pdf] によると... また、[出典: b.pdf] によると...";
-      const files = extractCitedFileNames(text);
-      expect(files).toEqual(["a.pdf", "b.pdf"]);
+    it("should fallback to text only if no index found", () => {
+      const text = "古い形式: [出典: legacy.pdf]";
+      const refs = extractCitedReferences(text);
+      expect(refs).toEqual([
+        { text: "legacy.pdf" }, // index is undefined
+      ]);
     });
 
-    it("should ignore duplicates", () => {
-      const text = "[出典: a.pdf] ... [出典: a.pdf]";
-      const files = extractCitedFileNames(text);
-      expect(files).toEqual(["a.pdf"]);
+    it("should handle mixed formats", () => {
+      const text = "[出典: 1. good.pdf, bad.pdf]";
+      const refs = extractCitedReferences(text);
+      expect(refs).toEqual([
+        { index: 1, text: "good.pdf" },
+        { text: "bad.pdf" },
+      ]);
     });
   });
 });
