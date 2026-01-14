@@ -216,6 +216,7 @@ export function extractAnswerFromStream(fullText: string): string {
  * テキストから引用されたファイル名を抽出する
  * 想定フォーマット: [出典: filename] または [出典: filename1, filename2]
  * 対応区切り文字: カンマ(,), 読点(、), 全角カンマ(，)
+ * 戻り値: NFC正規化されたファイル名の配列
  */
 export function extractCitedFileNames(text: string): string[] {
   const citedFiles = new Set<string>();
@@ -230,7 +231,8 @@ export function extractCitedFileNames(text: string): string[] {
       // カンマ、読点、全角カンマで分割し、前後の空白を除去
       const files = match[1].split(/[,、，]/).map((f) => f.trim());
       files.forEach((f) => {
-        if (f) citedFiles.add(f);
+        // NFC正規化を行ってから追加（Mac OSのNFD対策）
+        if (f) citedFiles.add(f.normalize("NFC"));
       });
     }
   }
