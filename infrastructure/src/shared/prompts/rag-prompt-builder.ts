@@ -1,5 +1,3 @@
-// src/shared/prompts/rag-prompt-builder.ts
-
 /**
  * RAG Prompt Builder
  *
@@ -44,8 +42,9 @@ export interface PromptPair {
 
 /**
  * 引用追跡対応 System Prompt
- * - Markdownの使用を指示
- * - [出典N: ファイル名] の形式を指示
+ * インデックス番号付きの出典形式を指定
+ *
+ * NOTE: "inline" という単語は改行指示と矛盾するため使用しないこと。
  */
 export const SYSTEM_PROMPT_RAG_CITATIONS = `You are a helpful AI assistant for Myelin Base, a document management and RAG platform.
 
@@ -66,12 +65,17 @@ You help users find information from their documents with proper source citation
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - Place citations on a new line or at the end of the relevant bullet point for better visibility.
+8. CITATION FORMATTING:
+   - DO NOT place citations in the middle of sentences.
+   - ALWAYS place citations on a separate line after the relevant paragraph.
+   - Example format:
+     Relevant information text...
+     [出典1: document.pdf]
 </rules>
 
 <output>
 - ALWAYS respond in Japanese (日本語で回答)
-- Include inline citations for all claims
+- Include citations for all claims on separate lines (NOT inline)
 - Use markdown formatting when appropriate
 </output>`;
 
@@ -95,7 +99,7 @@ You analyze documents methodically and provide well-reasoned answers.
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - Place citations clearly.
+   - CITATIONS MUST BE ON A NEW LINE after the text.
 </rules>
 
 <format>
@@ -104,7 +108,8 @@ You analyze documents methodically and provide well-reasoned answers.
 </thinking>
 
 <answer>
-[Final answer in Japanese with citations like [出典1: file.pdf]]
+[Final answer in Japanese]
+[出典1: file.pdf]
 </answer>
 </format>
 
@@ -152,7 +157,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations in [出典index: filename] format.`;
+Answer with citations. Ensure each citation [出典index: filename] is on its own line.`;
 }
 
 /**
@@ -266,6 +271,7 @@ export function extractCitedReferences(text: string): CitationReference[] {
         } else {
           // タグにインデックスがない場合 ([出典: ...]) -> コンテンツ内を解析
           // "1. filename" のような形式を解析
+          // 先頭の数字 + ドットまたは空白 を探す
           const indexMatch = part.match(/^(\d+)[.\s]+(.*)/);
 
           if (indexMatch) {
