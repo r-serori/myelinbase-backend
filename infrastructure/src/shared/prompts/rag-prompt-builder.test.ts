@@ -36,8 +36,8 @@ const sampleQuery = "Myelin Baseの機能は？";
 describe("RAG Prompt Builder", () => {
   describe("System Prompts", () => {
     it("SYSTEM_PROMPT_RAG_CITATIONS should include index citation format", () => {
-      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典: index. filename]");
-      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain('"index" attribute');
+      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典index: filename]");
+      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典1: manual.pdf]");
     });
 
     it("SYSTEM_PROMPT_RAG_THINKING should include format tags", () => {
@@ -58,7 +58,7 @@ describe("RAG Prompt Builder", () => {
       expect(userPrompt).toContain("<documents>");
       expect(userPrompt).toContain('source="overview.pdf"');
       expect(userPrompt).toContain('index="1"');
-      expect(userPrompt).toContain("[出典: index. filename]");
+      expect(userPrompt).toContain("[出典index: filename]");
     });
 
     it("should use thinking prompt when enableThinking is true", () => {
@@ -75,8 +75,8 @@ describe("RAG Prompt Builder", () => {
   });
 
   describe("extractCitedReferences", () => {
-    it("should extract indexed citation", () => {
-      const text = "これは重要です [出典: 1. manual.pdf]";
+    it("should extract new format citation [出典N: ...]", () => {
+      const text = "これは重要です [出典1: manual.pdf]";
       const refs = extractCitedReferences(text);
       expect(refs).toEqual([
         {
@@ -86,8 +86,8 @@ describe("RAG Prompt Builder", () => {
       ]);
     });
 
-    it("should extract multiple indexed citations", () => {
-      const text = "複数の出典 [出典: 1. doc1.pdf, 2. doc2.txt]";
+    it("should extract multiple citations in new format", () => {
+      const text = "複数の出典 [出典1: doc1.pdf] そして [出典2: doc2.txt]";
       const refs = extractCitedReferences(text);
       expect(refs).toEqual([
         { index: 1, text: "doc1.pdf" },
@@ -95,29 +95,36 @@ describe("RAG Prompt Builder", () => {
       ]);
     });
 
-    it("should handle Japanese separators (、)", () => {
-      const text = "参照: [出典: 1. file1.pdf、2. file2.pdf]";
+    it("should fallback to old format [出典: N. ...]", () => {
+      const text = "古い形式: [出典: 1. legacy.pdf]";
       const refs = extractCitedReferences(text);
-      expect(refs).toEqual([
-        { index: 1, text: "file1.pdf" },
-        { index: 2, text: "file2.pdf" },
-      ]);
+      expect(refs).toEqual([{ index: 1, text: "legacy.pdf" }]);
     });
 
-    it("should fallback to text only if no index found", () => {
-      const text = "古い形式: [出典: legacy.pdf]";
+    it("should fallback to text only if no index found in old format", () => {
+      const text = "インデックスなし: [出典: legacy.pdf]";
       const refs = extractCitedReferences(text);
       expect(refs).toEqual([
         { text: "legacy.pdf" }, // index is undefined
       ]);
     });
 
-    it("should handle mixed formats", () => {
-      const text = "[出典: 1. good.pdf, bad.pdf]";
+    it("should handle mixed formats in one text", () => {
+      const text = "[出典1: good.pdf] と [出典: 2. old.pdf]";
       const refs = extractCitedReferences(text);
       expect(refs).toEqual([
         { index: 1, text: "good.pdf" },
-        { text: "bad.pdf" },
+        { index: 2, text: "old.pdf" },
+      ]);
+    });
+
+    it("should handle Japanese separators in new format", () => {
+      // 本来はタグを分けるべきだが、万が一 [出典1: fileA, fileB] となった場合
+      const text = "[出典1: file1.pdf、file2.pdf]";
+      const refs = extractCitedReferences(text);
+      expect(refs).toEqual([
+        { index: 1, text: "file1.pdf" },
+        { index: 1, text: "file2.pdf" }, // 同じインデックスが適用される
       ]);
     });
   });
