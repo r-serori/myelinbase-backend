@@ -37,7 +37,7 @@ describe("RAG Prompt Builder", () => {
   describe("System Prompts", () => {
     it("SYSTEM_PROMPT_RAG_CITATIONS should include index citation format", () => {
       expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典index: filename]");
-      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain("[出典1: manual.pdf]");
+      expect(SYSTEM_PROMPT_RAG_CITATIONS).toContain('"index" attribute');
     });
 
     it("SYSTEM_PROMPT_RAG_THINKING should include format tags", () => {

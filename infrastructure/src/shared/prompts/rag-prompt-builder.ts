@@ -44,7 +44,8 @@ export interface PromptPair {
 
 /**
  * 引用追跡対応 System Prompt
- * インデックス番号付きの出典形式を指定
+ * - Markdownの使用を指示
+ * - [出典N: ファイル名] の形式を指示
  */
 export const SYSTEM_PROMPT_RAG_CITATIONS = `You are a helpful AI assistant for Myelin Base, a document management and RAG platform.
 
@@ -61,6 +62,11 @@ You help users find information from their documents with proper source citation
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
 5. NEVER fabricate information
 6. Multiple sources can be cited: [出典1: doc1.pdf] [出典2: doc2.pdf]
+7. Use Markdown formatting to improve readability:
+   - Use headers (###) for sections.
+   - Use bold (**text**) for important terms.
+   - Use lists (-) for itemized information.
+   - Place citations on a new line or at the end of the relevant bullet point for better visibility.
 </rules>
 
 <output>
@@ -85,6 +91,11 @@ You analyze documents methodically and provide well-reasoned answers.
 4. Use format [出典index: filename] for citations in <answer>
 5. If no relevant information exists, state this in <answer>
 6. NEVER fabricate information
+7. Use Markdown formatting in <answer>:
+   - Use headers (###) for sections.
+   - Use bold (**text**) for important terms.
+   - Use lists (-) for itemized information.
+   - Place citations clearly.
 </rules>
 
 <format>
