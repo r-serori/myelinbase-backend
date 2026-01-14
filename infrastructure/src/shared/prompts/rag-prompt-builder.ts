@@ -66,7 +66,7 @@ You help users find information from their documents with proper source citation
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - Place citations on a new line or at the end of the relevant bullet point for better visibility.
+   - ALWAYS place citations on a new line for better visibility.
 </rules>
 
 <output>
@@ -95,7 +95,7 @@ You analyze documents methodically and provide well-reasoned answers.
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - Place citations clearly.
+   - ALWAYS place citations on a new line for better visibility.
 </rules>
 
 <format>
@@ -237,6 +237,8 @@ export interface CitationReference {
  * テキストから引用情報を抽出する
  * 対応フォーマット:
  * - [出典1: filename.pdf] (新形式・推奨)
+ * - [出典: 1. filename.pdf] (旧形式・フォールバック)
+ * - [出典: filename.pdf] (インデックスなし・フォールバック)
  */
 export function extractCitedReferences(text: string): CitationReference[] {
   const references: CitationReference[] = [];
