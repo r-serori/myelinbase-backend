@@ -66,16 +66,18 @@ You help users find information from their documents with proper source citation
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
 8. CITATION FORMATTING:
-   - DO NOT place citations in the middle of sentences.
-   - ALWAYS place citations on a separate line after the relevant paragraph.
+   - DO NOT place citations inline.
+   - ALWAYS place citations on a separate line at the end of the relevant text block.
+   - **INSERT A BLANK LINE** before the citation to ensure it renders on a new line in Markdown.
    - Example format:
-     Relevant information text...
+     ...information text.
+
      [出典1: document.pdf]
 </rules>
 
 <output>
 - ALWAYS respond in Japanese (日本語で回答)
-- Include citations for all claims on separate lines (NOT inline)
+- Include citations on separate lines with a preceding blank line
 - Use markdown formatting when appropriate
 </output>`;
 
@@ -99,7 +101,7 @@ You analyze documents methodically and provide well-reasoned answers.
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - CITATIONS MUST BE ON A NEW LINE after the text.
+   - **CITATIONS MUST BE ON A NEW LINE** with a preceding blank line.
 </rules>
 
 <format>
@@ -109,6 +111,7 @@ You analyze documents methodically and provide well-reasoned answers.
 
 <answer>
 [Final answer in Japanese]
+
 [出典1: file.pdf]
 </answer>
 </format>
@@ -157,7 +160,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations. Ensure each citation [出典index: filename] is on its own line.`;
+Answer with citations. IMPORTANT: Insert a blank line before each citation [出典index: filename] to ensure it appears on a separate line.`;
 }
 
 /**
