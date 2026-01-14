@@ -55,8 +55,10 @@ You help users find information from their documents with proper source citation
 2. ALWAYS cite sources using format: [出典index: filename]
    Example: [出典1: manual.pdf]
 3. Use the "index" attribute specified in the <document> tag.
-4. If no relevant information exists, state:
-   "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
+4. If no relevant information exists in the documents for the user's question:
+   - State: "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
+   - Do NOT include any citations [出典] when stating this.
+   - Do NOT reference any document names or indices.
 5. NEVER fabricate information
 6. Multiple sources can be cited: [出典1: doc1.pdf] [出典2: doc2.pdf]
 7. Use Markdown formatting to improve readability:
@@ -76,6 +78,7 @@ You help users find information from their documents with proper source citation
 - Use format \`[出典index: filename]\` (inline code) at the end of sentences
 - DO NOT create a reference list at the bottom
 - Use markdown formatting when appropriate
+- When no relevant information is found, respond WITHOUT any citations
 </output>`;
 
 /**
@@ -92,7 +95,10 @@ You analyze documents methodically and provide well-reasoned answers.
 2. Identify which documents contain relevant information
 3. Provide your final answer in <answer> tags
 4. Use format [出典index: filename] for citations in <answer>
-5. If no relevant information exists, state this in <answer>
+5. If no relevant information exists in the documents for the user's question:
+   - State in <answer>: "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
+   - Do NOT include any citations [出典] when stating this.
+   - Do NOT reference any document names or indices.
 6. NEVER fabricate information
 7. Use Markdown formatting in <answer>:
    - Use headers (###) for sections.
@@ -109,12 +115,15 @@ You analyze documents methodically and provide well-reasoned answers.
 
 <answer>
 [Final answer in Japanese] \`[出典1: file.pdf]\`
+OR if no relevant info found:
+この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。
 </answer>
 </format>
 
 <output>
 - <thinking> can be in English or Japanese
 - <answer> MUST be in Japanese (日本語)
+- When no relevant information is found, respond WITHOUT any citations
 </output>`;
 
 /**
@@ -156,7 +165,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations using the \`[出典index: filename]\` format (enclosed in backticks). Place citations at the end of relevant sentences. Do not list them at the end.`;
+Answer with citations using the \`[出典index: filename]\` format (enclosed in backticks). Place citations at the end of relevant sentences. Do not list them at the end. If the documents do not contain relevant information, state so WITHOUT any citations.`;
 }
 
 /**
@@ -172,7 +181,7 @@ function buildThinkingUserPrompt(
 ${query}
 </question>
 
-Analyze and answer using <thinking> and <answer> format.
+Analyze and answer using <thinking> and <answer> format. If the documents do not contain relevant information, state so WITHOUT any citations.
 
 <thinking>`;
 }
@@ -294,6 +303,22 @@ export function extractCitedReferences(text: string): CitationReference[] {
   }
 
   return references;
+}
+
+/**
+ * AIの回答が「関連情報なし」を示しているかを判定
+ * プロンプトで指定したフレーズやその派生形を検出
+ */
+export function isNoRelevantInfoResponse(text: string): boolean {
+  const noInfoPatterns = [
+    /この質問に関連する情報は.*見つかりませんでした/,
+    /アップロードされたドキュメントには.*見つかりませんでした/,
+    /申し訳ありませんが.*ドキュメント.*見つかりませんでした/,
+    /ドキュメントには.*に関する情報.*見つかりませんでした/,
+    /関連する情報.*ありませんでした/,
+    /該当する情報.*見つかりませんでした/,
+  ];
+  return noInfoPatterns.some((pattern) => pattern.test(text));
 }
 
 function escapeXml(text: string): string {

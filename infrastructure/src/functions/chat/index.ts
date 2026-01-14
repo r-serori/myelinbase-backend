@@ -21,6 +21,7 @@ import {
   ContextDocument,
   extractAnswerFromStream,
   extractCitedReferences,
+  isNoRelevantInfoResponse,
   parseThinkingResponse,
 } from "../../shared/prompts/rag-prompt-builder";
 import {
@@ -259,38 +260,43 @@ async function processWithBedrock(
           ? parseThinkingResponse(fullText).answer
           : fullText;
 
-        // 引用情報を抽出 (インデックスとテキストを含む)
-        const citedRefs = extractCitedReferences(finalAnswer);
+        // 「関連情報なし」の回答の場合、citationsは空配列にする
+        if (isNoRelevantInfoResponse(finalAnswer)) {
+          citations = [];
+        } else {
+          // 引用情報を抽出 (インデックスとテキストを含む)
+          const citedRefs = extractCitedReferences(finalAnswer);
 
-        const matchedCitationsMap = new Map<string, SourceDocumentDto>();
+          const matchedCitationsMap = new Map<string, SourceDocumentDto>();
 
-        for (const ref of citedRefs) {
-          let matched: SourceDocumentDto | undefined;
+          for (const ref of citedRefs) {
+            let matched: SourceDocumentDto | undefined;
 
-          if (ref.index !== undefined) {
-            // indexは1-basedなので -1 する
-            matched = candidateCitations[ref.index - 1];
+            if (ref.index !== undefined) {
+              // indexは1-basedなので -1 する
+              matched = candidateCitations[ref.index - 1];
+            }
+
+            // フォールバック
+            if (!matched && ref.text) {
+              const searchText = normalizeForMatch(ref.text);
+              matched = candidateCitations.find((doc) => {
+                const docName = normalizeForMatch(doc.fileName);
+                return (
+                  docName.includes(searchText) || searchText.includes(docName)
+                );
+              });
+            }
+
+            if (matched) {
+              matchedCitationsMap.set(matched.documentId, matched);
+            }
           }
 
-          // フォールバック
-          if (!matched && ref.text) {
-            const searchText = normalizeForMatch(ref.text);
-            matched = candidateCitations.find((doc) => {
-              const docName = normalizeForMatch(doc.fileName);
-              return (
-                docName.includes(searchText) || searchText.includes(docName)
-              );
-            });
-          }
-
-          if (matched) {
-            matchedCitationsMap.set(matched.documentId, matched);
-          }
+          citations = Array.from(matchedCitationsMap.values()).sort(
+            (a, b) => b.score - a.score
+          );
         }
-
-        citations = Array.from(matchedCitationsMap.values()).sort(
-          (a, b) => b.score - a.score
-        );
 
         // 8. Stream filtered citations to frontend
         for (const citation of citations) {
@@ -404,9 +410,15 @@ async function processWithMockData(
 
       writer.write({ type: "text-end", id: textBlockId });
 
-      const filteredCitations = mockCitations.filter((c) =>
-        response.includes(c.fileName)
-      );
+      // Mock環境でも「関連情報なし」パターンをチェック
+      let filteredCitations: SourceDocumentDto[];
+      if (isNoRelevantInfoResponse(fullText)) {
+        filteredCitations = [];
+      } else {
+        filteredCitations = mockCitations.filter((c) =>
+          response.includes(c.fileName)
+        );
+      }
 
       for (const citation of filteredCitations) {
         writer.write({
