@@ -242,6 +242,8 @@ export interface CitationReference {
  * テキストから引用情報を抽出する
  * 対応フォーマット:
  * - [出典1: filename.pdf] (新形式・推奨)
+ * - [出典: 1. filename.pdf] (旧形式・フォールバック)
+ * - [出典: filename.pdf] (インデックスなし・フォールバック)
  */
 export function extractCitedReferences(text: string): CitationReference[] {
   const references: CitationReference[] = [];
