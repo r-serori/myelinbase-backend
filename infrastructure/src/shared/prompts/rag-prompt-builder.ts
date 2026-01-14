@@ -66,18 +66,17 @@ You help users find information from their documents with proper source citation
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
 8. CITATION FORMATTING:
-   - DO NOT place citations inline.
-   - ALWAYS place citations on a separate line at the end of the relevant text block.
-   - **INSERT A BLANK LINE** before the citation to ensure it renders on a new line in Markdown.
+   - DO NOT place citations inline with the text.
+   - ALWAYS place citations on a separate line.
+   - **MANDATORY**: Insert an HTML line break tag <br> before every citation to ensure it renders on a new line.
    - Example format:
-     ...information text.
-
+     ...relevant information text.<br>
      [出典1: document.pdf]
 </rules>
 
 <output>
 - ALWAYS respond in Japanese (日本語で回答)
-- Include citations on separate lines with a preceding blank line
+- Insert <br> before every citation
 - Use markdown formatting when appropriate
 </output>`;
 
@@ -101,7 +100,7 @@ You analyze documents methodically and provide well-reasoned answers.
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - **CITATIONS MUST BE ON A NEW LINE** with a preceding blank line.
+   - CITATIONS MUST BE ON A NEW LINE using <br> tag.
 </rules>
 
 <format>
@@ -111,7 +110,7 @@ You analyze documents methodically and provide well-reasoned answers.
 
 <answer>
 [Final answer in Japanese]
-
+<br>
 [出典1: file.pdf]
 </answer>
 </format>
@@ -160,7 +159,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations. IMPORTANT: Insert a blank line before each citation [出典index: filename] to ensure it appears on a separate line.`;
+Answer with citations. IMPORTANT: You MUST insert an HTML <br> tag before each citation [出典index: filename] to force a line break.`;
 }
 
 /**
