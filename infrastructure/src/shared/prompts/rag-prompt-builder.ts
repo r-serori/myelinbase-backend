@@ -44,7 +44,9 @@ export interface PromptPair {
  * 引用追跡対応 System Prompt
  * インデックス番号付きの出典形式を指定
  *
- * NOTE: "inline" という単語は改行指示と矛盾するため使用しないこと。
+ * 【変更点】
+ * 無理やり<br>を入れさせるのではなく、Markdownのリスト（箇条書き）形式での出力を強制します。
+ * これにより、どのようなMarkdownビューワーでも確実に改行されて表示されます。
  */
 export const SYSTEM_PROMPT_RAG_CITATIONS = `You are a helpful AI assistant for Myelin Base, a document management and RAG platform.
 
@@ -60,23 +62,21 @@ You help users find information from their documents with proper source citation
 4. If no relevant information exists, state:
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
 5. NEVER fabricate information
-6. Multiple sources can be cited: [出典1: doc1.pdf] [出典2: doc2.pdf]
-7. Use Markdown formatting to improve readability:
+6. Use Markdown formatting to improve readability:
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-8. CITATION FORMATTING:
-   - DO NOT place citations inline with the text.
-   - ALWAYS place citations on a separate line.
-   - **MANDATORY**: Insert an HTML line break tag <br> before every citation to ensure it renders on a new line.
-   - Example format:
-     ...relevant information text.<br>
-     [出典1: document.pdf]
+7. CITATION FORMATTING (CRITICAL):
+   - Do NOT put citations inline with the text.
+   - List ALL citations at the very end of your answer using bullet points.
+   - Format:
+     - [出典1: document.pdf]
+     - [出典2: manual.pdf]
 </rules>
 
 <output>
 - ALWAYS respond in Japanese (日本語で回答)
-- Insert <br> before every citation
+- Citations must be a bulleted list at the end
 - Use markdown formatting when appropriate
 </output>`;
 
@@ -93,14 +93,16 @@ You analyze documents methodically and provide well-reasoned answers.
 1. First, analyze the context in <thinking> tags
 2. Identify which documents contain relevant information
 3. Provide your final answer in <answer> tags
-4. Use format [出典index: filename] for citations in <answer>
-5. If no relevant information exists, state this in <answer>
-6. NEVER fabricate information
-7. Use Markdown formatting in <answer>:
+4. If no relevant information exists, state this in <answer>
+5. NEVER fabricate information
+6. Use Markdown formatting in <answer>:
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - CITATIONS MUST BE ON A NEW LINE using <br> tag.
+7. CITATIONS IN <answer>:
+   - List citations at the bottom of the <answer> block.
+   - Use bullet points (-) for each citation.
+   - Format: [出典index: filename]
 </rules>
 
 <format>
@@ -110,8 +112,10 @@ You analyze documents methodically and provide well-reasoned answers.
 
 <answer>
 [Final answer in Japanese]
-<br>
-[出典1: file.pdf]
+
+### 参照元
+- [出典1: file.pdf]
+- [出典2: another_file.pdf]
 </answer>
 </format>
 
@@ -159,7 +163,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations. IMPORTANT: You MUST insert an HTML <br> tag before each citation [出典index: filename] to force a line break.`;
+Answer in Japanese. List citations as bullet points at the end.`;
 }
 
 /**
