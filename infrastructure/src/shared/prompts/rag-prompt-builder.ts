@@ -44,7 +44,8 @@ export interface PromptPair {
 
 /**
  * 引用追跡対応 System Prompt
- * インデックス番号付きの出典形式を指定
+ * - Markdownの使用を指示
+ * - [出典N: ファイル名] の形式を指示
  */
 export const SYSTEM_PROMPT_RAG_CITATIONS = `You are a helpful AI assistant for Myelin Base, a document management and RAG platform.
 
