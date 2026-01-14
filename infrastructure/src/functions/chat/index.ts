@@ -20,7 +20,7 @@ import {
   buildRAGPrompt,
   ContextDocument,
   extractAnswerFromStream,
-  extractCitedFileNames,
+  extractCitedReferences,
   parseThinkingResponse,
 } from "../../shared/prompts/rag-prompt-builder";
 import {
@@ -216,14 +216,14 @@ async function processWithBedrock(
           })
         );
 
-        // 6. Generate RAG prompt
+        // 5. Generate RAG prompt
         const { systemPrompt, userPrompt } = buildRAGPrompt({
           documents,
           query,
           enableThinking: ENABLE_THINKING,
         });
 
-        // 7. Stream Claude response as text
+        // 6. Stream Claude response as text
         const textBlockId = `text-${randomUUID()}`;
         writer.write({ type: "text-start", id: textBlockId });
 
@@ -254,19 +254,45 @@ async function processWithBedrock(
 
         writer.write({ type: "text-end", id: textBlockId });
 
-        // 8. Parse final answer for storage
+        // 7. Parse final answer & Filter citations
         const finalAnswer = ENABLE_THINKING
           ? parseThinkingResponse(fullText).answer
           : fullText;
 
-        const citedFileNames = extractCitedFileNames(finalAnswer);
+        // 引用情報を抽出 (インデックスとテキストを含む)
+        const citedRefs = extractCitedReferences(finalAnswer);
 
-        citations = candidateCitations.filter((doc) =>
-          citedFileNames.includes(doc.fileName)
+        const matchedCitationsMap = new Map<string, SourceDocumentDto>();
+
+        for (const ref of citedRefs) {
+          let matched: SourceDocumentDto | undefined;
+
+          if (ref.index !== undefined) {
+            // indexは1-basedなので -1 する
+            matched = candidateCitations[ref.index - 1];
+          }
+
+          // フォールバック
+          if (!matched && ref.text) {
+            const searchText = normalizeForMatch(ref.text);
+            matched = candidateCitations.find((doc) => {
+              const docName = normalizeForMatch(doc.fileName);
+              return (
+                docName.includes(searchText) || searchText.includes(docName)
+              );
+            });
+          }
+
+          if (matched) {
+            matchedCitationsMap.set(matched.documentId, matched);
+          }
+        }
+
+        citations = Array.from(matchedCitationsMap.values()).sort(
+          (a, b) => b.score - a.score
         );
 
-        citations.sort((a, b) => b.score - a.score);
-
+        // 8. Stream filtered citations to frontend
         for (const citation of citations) {
           writer.write({
             type: "data-citation",
@@ -328,8 +354,6 @@ async function processWithBedrock(
     },
   });
 
-  // ReadableStream を消費して Lambda ストリームに書き込む
-  // createUIMessageStream は ReadableStream<object> を返すため、型キャストが必要
   await pipeToLambdaStream(
     uiStream as unknown as ReadableStream<string | object>,
     lambdaStream
@@ -517,6 +541,19 @@ async function saveHistory(
 // ============================================
 // Utilities
 // ============================================
+
+/**
+ * 比較用に文字列を正規化する
+ * - NFKC正規化
+ * - 小文字化
+ * - 空白文字の削除
+ */
+function normalizeForMatch(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s\u3000]/g, ""); // 半角スペース・全角スペースを除去
+}
 
 function extractQuery(body: ChatStreamRequestDto): string {
   const lastMessage = body.messages

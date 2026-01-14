@@ -44,6 +44,7 @@ export interface PromptPair {
 
 /**
  * 引用追跡対応 System Prompt
+ * インデックス番号付きの出典形式を指定
  */
 export const SYSTEM_PROMPT_RAG_CITATIONS = `You are a helpful AI assistant for Myelin Base, a document management and RAG platform.
 
@@ -53,11 +54,13 @@ You help users find information from their documents with proper source citation
 
 <rules>
 1. Base answers ONLY on the provided content within the <documents> XML tags.
-2. ALWAYS cite sources using format: [出典: filename]
-3. If no relevant information exists, state:
+2. ALWAYS cite sources using format: [出典: index. filename]
+   Example: [出典: 1. manual.pdf]
+3. Use the "index" attribute specified in the <document> tag.
+4. If no relevant information exists, state:
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
-4. NEVER fabricate information
-5. Multiple sources can be cited: [出典: doc1.pdf, doc2.pdf]
+5. NEVER fabricate information
+6. Multiple sources can be cited: [出典: 1. doc1.pdf, 2. doc2.pdf]
 </rules>
 
 <output>
@@ -79,8 +82,9 @@ You analyze documents methodically and provide well-reasoned answers.
 1. First, analyze the context in <thinking> tags
 2. Identify which documents contain relevant information
 3. Provide your final answer in <answer> tags
-4. If no relevant information exists, state this in <answer>
-5. NEVER fabricate information
+4. Use format [出典: index. filename] for citations in <answer>
+5. If no relevant information exists, state this in <answer>
+6. NEVER fabricate information
 </rules>
 
 <format>
@@ -89,7 +93,7 @@ You analyze documents methodically and provide well-reasoned answers.
 </thinking>
 
 <answer>
-[Final answer in Japanese with citations if applicable]
+[Final answer in Japanese with citations like [出典: 1. file.pdf]]
 </answer>
 </format>
 
@@ -137,7 +141,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations in [出典: filename] format.`;
+Answer with citations in [出典: index. filename] format.`;
 }
 
 /**
@@ -197,8 +201,6 @@ export function parseThinkingResponse(response: string): {
 
 /**
  * ストリーミング中の<answer>部分を抽出
- *
- * enableThinking時、<thinking>をスキップして<answer>のみをユーザーに表示するために使用
  */
 export function extractAnswerFromStream(fullText: string): string {
   const answerStart = fullText.indexOf("<answer>");
@@ -213,31 +215,54 @@ export function extractAnswerFromStream(fullText: string): string {
 }
 
 /**
- * テキストから引用されたファイル名を抽出する
- * 想定フォーマット: [出典: filename] または [出典: filename1, filename2]
- * 対応区切り文字: カンマ(,), 読点(、), 全角カンマ(，)
- * 戻り値: NFC正規化されたファイル名の配列
+ * 引用情報の解析結果
  */
-export function extractCitedFileNames(text: string): string[] {
-  const citedFiles = new Set<string>();
+export interface CitationReference {
+  index?: number; // ドキュメントのインデックス番号 (1-based)
+  text: string; // ファイル名などのテキスト部分
+}
+
+/**
+ * テキストから引用情報を抽出する
+ * 対応フォーマット:
+ * - [出典: 1. filename.pdf] (推奨)
+ * - [出典: filename.pdf] (フォールバック)
+ * - [出典: 1. filename, 2. other.pdf] (複数)
+ */
+export function extractCitedReferences(text: string): CitationReference[] {
+  const references: CitationReference[] = [];
   // 正規表現: [出典: ... ] を検索
-  // 閉じカッコ ] までの文字列をキャプチャ
-  // [^\]]+ は「]」以外の任意の文字（日本語、記号含む）にマッチします
   const regex = /\[出典:\s*([^\]]+)\]/g;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
     if (match[1]) {
-      // カンマ、読点、全角カンマで分割し、前後の空白を除去
-      const files = match[1].split(/[,、，]/).map((f) => f.trim());
-      files.forEach((f) => {
-        // NFC正規化を行ってから追加（Mac OSのNFD対策）
-        if (f) citedFiles.add(f.normalize("NFC"));
-      });
+      // カンマ、読点、全角カンマで分割
+      const parts = match[1].split(/[,、，]/).map((p) => p.trim());
+
+      for (const part of parts) {
+        if (!part) continue;
+
+        // "1. filename" のような形式を解析
+        // 先頭の数字 + ドットまたは空白 を探す
+        const indexMatch = part.match(/^(\d+)[.\s]+(.*)/);
+
+        if (indexMatch) {
+          references.push({
+            index: parseInt(indexMatch[1], 10),
+            text: indexMatch[2].trim(),
+          });
+        } else {
+          // 数字がない場合はテキスト全体をファイル名として扱う
+          references.push({
+            text: part,
+          });
+        }
+      }
     }
   }
 
-  return Array.from(citedFiles);
+  return references;
 }
 
 function escapeXml(text: string): string {
