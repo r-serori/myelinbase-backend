@@ -43,10 +43,6 @@ export interface PromptPair {
 /**
  * 引用追跡対応 System Prompt
  * インデックス番号付きの出典形式を指定
- *
- * 【変更点】
- * 無理やり<br>を入れさせるのではなく、Markdownのリスト（箇条書き）形式での出力を強制します。
- * これにより、どのようなMarkdownビューワーでも確実に改行されて表示されます。
  */
 export const SYSTEM_PROMPT_RAG_CITATIONS = `You are a helpful AI assistant for Myelin Base, a document management and RAG platform.
 
@@ -56,27 +52,29 @@ You help users find information from their documents with proper source citation
 
 <rules>
 1. Base answers ONLY on the provided content within the <documents> XML tags.
-2. ALWAYS cite sources using format: [出典index: filename]
-   Example: [出典1: manual.pdf]
+2. ALWAYS cite sources using format: >[出典index: filename]
+   Example: >[出典1: manual.pdf]
 3. Use the "index" attribute specified in the <document> tag.
 4. If no relevant information exists, state:
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
 5. NEVER fabricate information
-6. Use Markdown formatting to improve readability:
+6. Multiple sources can be cited: >[出典1: doc1.pdf] >[出典2: doc2.pdf]
+7. Use Markdown formatting to improve readability:
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-7. CITATION FORMATTING (CRITICAL):
-   - Do NOT put citations inline with the text.
-   - List ALL citations at the very end of your answer using bullet points.
-   - Format:
-     - [出典1: document.pdf]
-     - [出典2: manual.pdf]
+8. CITATION FORMATTING:
+   - Place citations at the end of the relevant sentence or list item.
+   - ALWAYS prefix the citation with a ">" symbol to visually separate it.
+   - DO NOT list all citations at the end of the response. Citations must be inline.
+   - Example format:
+     ...relevant information text. >[出典1: document.pdf]
 </rules>
 
 <output>
 - ALWAYS respond in Japanese (日本語で回答)
-- Citations must be a bulleted list at the end
+- Use format >[出典index: filename] at the end of sentences
+- DO NOT create a reference list at the bottom
 - Use markdown formatting when appropriate
 </output>`;
 
@@ -93,16 +91,15 @@ You analyze documents methodically and provide well-reasoned answers.
 1. First, analyze the context in <thinking> tags
 2. Identify which documents contain relevant information
 3. Provide your final answer in <answer> tags
-4. If no relevant information exists, state this in <answer>
-5. NEVER fabricate information
-6. Use Markdown formatting in <answer>:
+4. Use format >[出典index: filename] for citations in <answer>
+5. If no relevant information exists, state this in <answer>
+6. NEVER fabricate information
+7. Use Markdown formatting in <answer>:
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-7. CITATIONS IN <answer>:
-   - List citations at the bottom of the <answer> block.
-   - Use bullet points (-) for each citation.
-   - Format: [出典index: filename]
+   - ALWAYS prefix citations with ">" and place them at the end of sentences.
+   - DO NOT list all citations at the end of the response.
 </rules>
 
 <format>
@@ -111,11 +108,7 @@ You analyze documents methodically and provide well-reasoned answers.
 </thinking>
 
 <answer>
-[Final answer in Japanese]
-
-### 参照元
-- [出典1: file.pdf]
-- [出典2: another_file.pdf]
+[Final answer in Japanese] >[出典1: file.pdf]
 </answer>
 </format>
 
@@ -163,7 +156,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer in Japanese. List citations as bullet points at the end.`;
+Answer with citations using the >[出典index: filename] format. Place citations at the end of relevant sentences. Do not list them at the end.`;
 }
 
 /**
@@ -250,6 +243,8 @@ export interface CitationReference {
  * - [出典1: filename.pdf] (新形式・推奨)
  * - [出典: 1. filename.pdf] (旧形式・フォールバック)
  * - [出典: filename.pdf] (インデックスなし・フォールバック)
+ *
+ * NOTE: 引用記号 ">" は正規表現の外側にあるため、このロジックには影響しません。
  */
 export function extractCitedReferences(text: string): CitationReference[] {
   const references: CitationReference[] = [];
