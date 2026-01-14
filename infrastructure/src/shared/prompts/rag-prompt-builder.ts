@@ -52,28 +52,28 @@ You help users find information from their documents with proper source citation
 
 <rules>
 1. Base answers ONLY on the provided content within the <documents> XML tags.
-2. ALWAYS cite sources using format: >[出典index: filename]
-   Example: >[出典1: manual.pdf]
+2. ALWAYS cite sources using format: [出典index: filename]
+   Example: [出典1: manual.pdf]
 3. Use the "index" attribute specified in the <document> tag.
 4. If no relevant information exists, state:
    "この質問に関連する情報はアップロードされたドキュメントには見つかりませんでした。"
 5. NEVER fabricate information
-6. Multiple sources can be cited: >[出典1: doc1.pdf] >[出典2: doc2.pdf]
+6. Multiple sources can be cited: [出典1: doc1.pdf] [出典2: doc2.pdf]
 7. Use Markdown formatting to improve readability:
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
 8. CITATION FORMATTING:
    - Place citations at the end of the relevant sentence or list item.
-   - ALWAYS prefix the citation with a ">" symbol to visually separate it.
+   - ALWAYS enclose citations in backticks (\`) to render them as inline code for better visibility.
    - DO NOT list all citations at the end of the response. Citations must be inline.
    - Example format:
-     ...relevant information text. >[出典1: document.pdf]
+     ...relevant information text. \`[出典1: document.pdf]\`
 </rules>
 
 <output>
 - ALWAYS respond in Japanese (日本語で回答)
-- Use format >[出典index: filename] at the end of sentences
+- Use format \`[出典index: filename]\` (inline code) at the end of sentences
 - DO NOT create a reference list at the bottom
 - Use markdown formatting when appropriate
 </output>`;
@@ -91,14 +91,14 @@ You analyze documents methodically and provide well-reasoned answers.
 1. First, analyze the context in <thinking> tags
 2. Identify which documents contain relevant information
 3. Provide your final answer in <answer> tags
-4. Use format >[出典index: filename] for citations in <answer>
+4. Use format [出典index: filename] for citations in <answer>
 5. If no relevant information exists, state this in <answer>
 6. NEVER fabricate information
 7. Use Markdown formatting in <answer>:
    - Use headers (###) for sections.
    - Use bold (**text**) for important terms.
    - Use lists (-) for itemized information.
-   - ALWAYS prefix citations with ">" and place them at the end of sentences.
+   - ALWAYS enclose citations in backticks (\`) and place them at the end of sentences.
    - DO NOT list all citations at the end of the response.
 </rules>
 
@@ -108,7 +108,7 @@ You analyze documents methodically and provide well-reasoned answers.
 </thinking>
 
 <answer>
-[Final answer in Japanese] >[出典1: file.pdf]
+[Final answer in Japanese] \`[出典1: file.pdf]\`
 </answer>
 </format>
 
@@ -156,7 +156,7 @@ function buildCitationsUserPrompt(
 ${query}
 </question>
 
-Answer with citations using the >[出典index: filename] format. Place citations at the end of relevant sentences. Do not list them at the end.`;
+Answer with citations using the \`[出典index: filename]\` format (enclosed in backticks). Place citations at the end of relevant sentences. Do not list them at the end.`;
 }
 
 /**
