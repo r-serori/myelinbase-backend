@@ -567,7 +567,7 @@ describe("Trigger Function", () => {
 
           Payload: Buffer.from(
             JSON.stringify({ errorMessage: "Lambda Error" })
-          ) as any,
+          ) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
         })
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .resolves({ StatusCode: 200, Payload: Buffer.from("{}") as any });

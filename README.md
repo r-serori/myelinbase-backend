@@ -154,11 +154,11 @@ DynamoDB Streams → Processor Lambda
 
 ### 環境構成
 
-| 環境 | ブランチ | デプロイ先 | 認証 |
-|------|---------|-----------|------|
-| **Local** | - | LocalStack | バイパス (user-001) |
-| **Development** | `develop` | AWS (dev) | Cognito |
-| **Production** | `main` | AWS (prod) | Cognito |
+| 環境            | ブランチ  | デプロイ先 | 認証                |
+| --------------- | --------- | ---------- | ------------------- |
+| **Local**       | -         | LocalStack | バイパス (user-001) |
+| **Development** | `develop` | AWS (dev)  | Cognito             |
+| **Production**  | `main`    | AWS (prod) | Cognito             |
 
 ## 技術スタック
 
@@ -423,35 +423,35 @@ npm run deploy:prod
 | 変数名                            | 必須 | デフォルト                               | 説明                             |
 | --------------------------------- | :--: | ---------------------------------------- | -------------------------------- |
 | `STAGE`                           |  ✅  | `dev`                                    | 環境 (local/dev/prod)            |
-| `LOG_LEVEL`                       |  -   | `INFO`                                   | ログレベル                        |
-| `ALLOWED_ORIGINS`                 |  -   | `*`                                      | CORS 許可オリジン                 |
+| `LOG_LEVEL`                       |  -   | `INFO`                                   | ログレベル                       |
+| `ALLOWED_ORIGINS`                 |  -   | `*`                                      | CORS 許可オリジン                |
 | `CHAT_MODEL_ID`                   |  -   | `anthropic.claude-3-haiku-20240307-v1:0` | Bedrock チャットモデルID         |
-| `EMBEDDING_MODEL_ID`              |  -   | `amazon.titan-embed-text-v1`            | Bedrock エンベディングモデルID   |
+| `EMBEDDING_MODEL_ID`              |  -   | `amazon.titan-embed-text-v1`             | Bedrock エンベディングモデルID   |
 | `PINECONE_API_KEY_PARAMETER_NAME` |  ✅  | `/myelinbase/dev/pinecone-api-key`       | SSM Parameter Store パラメータ名 |
-| `PINECONE_INDEX_NAME`              |  ✅  | `myelinbase-documents`                   | Pinecone インデックス名          |
+| `PINECONE_INDEX_NAME`             |  ✅  | `myelinbase-documents`                   | Pinecone インデックス名          |
 | `USE_BEDROCK`                     |  -   | `false`                                  | Bedrock使用フラグ                |
 
 ### 関数固有の環境変数
 
 #### Documents Function
 
-| 変数名               | 必須 | デフォルト | 説明                                  |
-| -------------------- | :--: | --------- | ------------------------------------- |
-| `TABLE_NAME`         |  ✅  | -         | DynamoDB ドキュメントテーブル名        |
-| `BUCKET_NAME`        |  ✅  | -         | S3 バケット名                         |
-| `PRESIGNED_URL_EXPIRY` | -   | `900`      | 署名付き URL の有効期限（秒）         |
-| `DYNAMODB_ENDPOINT`  |  -   | -         | DynamoDB エンドポイント（ローカル用） |
-| `S3_ENDPOINT`        |  -   | -         | S3 エンドポイント（ローカル用）       |
+| 変数名                 | 必須 | デフォルト | 説明                                  |
+| ---------------------- | :--: | ---------- | ------------------------------------- |
+| `TABLE_NAME`           |  ✅  | -          | DynamoDB ドキュメントテーブル名       |
+| `BUCKET_NAME`          |  ✅  | -          | S3 バケット名                         |
+| `PRESIGNED_URL_EXPIRY` |  -   | `900`      | 署名付き URL の有効期限（秒）         |
+| `DYNAMODB_ENDPOINT`    |  -   | -          | DynamoDB エンドポイント（ローカル用） |
+| `S3_ENDPOINT`          |  -   | -          | S3 エンドポイント（ローカル用）       |
 
 #### Chat Function
 
-| 変数名                 | 必須 | デフォルト | 説明                            |
-| ---------------------- | :--: | --------- | ------------------------------- |
-| `TABLE_NAME`           |  ✅  | -         | Chat History DynamoDB テーブル名 |
-| `DOCUMENT_TABLE_NAME` |  ✅  | -         | Documents DynamoDB テーブル名   |
-| `USER_POOL_ID`        |  ✅  | -         | Cognito User Pool ID            |
-| `CLIENT_ID`            |  ✅  | -         | Cognito Client ID               |
-| `USE_MOCK_BEDROCK`    |  -   | `false`   | モック Bedrock を使用（ローカル用） |
+| 変数名                | 必須 | デフォルト | 説明                                |
+| --------------------- | :--: | ---------- | ----------------------------------- |
+| `TABLE_NAME`          |  ✅  | -          | Chat History DynamoDB テーブル名    |
+| `DOCUMENT_TABLE_NAME` |  ✅  | -          | Documents DynamoDB テーブル名       |
+| `USER_POOL_ID`        |  ✅  | -          | Cognito User Pool ID                |
+| `CLIENT_ID`           |  ✅  | -          | Cognito Client ID                   |
+| `USE_MOCK_BEDROCK`    |  -   | `false`    | モック Bedrock を使用（ローカル用） |
 
 #### Trigger Function
 
@@ -464,13 +464,13 @@ npm run deploy:prod
 
 #### Processor / Cleanup Function
 
-| 変数名                         | 必須 | 説明                            |
-| ------------------------------ | :--: | ------------------------------- |
-| `TABLE_NAME`                   |  ✅  | Documents DynamoDB テーブル名   |
-| `BUCKET_NAME`                  |  ✅  | Documents S3 バケット名         |
-| `PINECONE_API_KEY_PARAMETER_NAME` |  ✅  | SSM Parameter Store パラメータ名  |
-| `PINECONE_INDEX_NAME`          |  ✅  | Pinecone インデックス名         |
-| `S3_ENDPOINT`                  |  -   | S3 エンドポイント（ローカル用） |
+| 変数名                            | 必須 | 説明                             |
+| --------------------------------- | :--: | -------------------------------- |
+| `TABLE_NAME`                      |  ✅  | Documents DynamoDB テーブル名    |
+| `BUCKET_NAME`                     |  ✅  | Documents S3 バケット名          |
+| `PINECONE_API_KEY_PARAMETER_NAME` |  ✅  | SSM Parameter Store パラメータ名 |
+| `PINECONE_INDEX_NAME`             |  ✅  | Pinecone インデックス名          |
+| `S3_ENDPOINT`                     |  -   | S3 エンドポイント（ローカル用）  |
 
 ### ローカル開発用環境変数
 
@@ -497,8 +497,8 @@ Authorization: Bearer <cognito-jwt-token>
 
 ドキュメントの管理機能を提供します。
 
-| メソッド | パス                           | 説明                 | 詳細ドキュメント |
-| -------- | ------------------------------ | -------------------- | ---------------- |
+| メソッド | パス                           | 説明                 | 詳細ドキュメント                                           |
+| -------- | ------------------------------ | -------------------- | ---------------------------------------------------------- |
 | GET      | `/documents`                   | ドキュメント一覧取得 | [詳細](./infrastructure/src/functions/documents/README.md) |
 | POST     | `/documents/upload`            | アップロードURL発行  | [詳細](./infrastructure/src/functions/documents/README.md) |
 | GET      | `/documents/{id}`              | ドキュメント詳細取得 | [詳細](./infrastructure/src/functions/documents/README.md) |
@@ -530,13 +530,13 @@ Authorization: Bearer <cognito-jwt-token>
 
 RAG チャット機能を提供します。
 
-| メソッド | パス                           | 説明                            | 詳細ドキュメント |
-| -------- | ------------------------------ | ------------------------------- | ---------------- |
+| メソッド | パス                           | 説明                            | 詳細ドキュメント                                               |
+| -------- | ------------------------------ | ------------------------------- | -------------------------------------------------------------- |
 | POST     | `/chat/sessions`               | セッション作成                  | [詳細](./infrastructure/src/functions/chat-sessions/README.md) |
 | GET      | `/chat/sessions`               | セッション一覧取得              | [詳細](./infrastructure/src/functions/chat-sessions/README.md) |
 | PATCH    | `/chat/sessions/{id}`          | セッション名更新                | [詳細](./infrastructure/src/functions/chat-sessions/README.md) |
 | DELETE   | `/chat/sessions/{id}`          | セッション削除                  | [詳細](./infrastructure/src/functions/chat-sessions/README.md) |
-| POST     | `/chat/sessions/{id}/messages` | メッセージ送信 (ストリーミング) | [詳細](./infrastructure/src/functions/chat/README.md) |
+| POST     | `/chat/sessions/{id}/messages` | メッセージ送信 (ストリーミング) | [詳細](./infrastructure/src/functions/chat/README.md)          |
 | GET      | `/chat/sessions/{id}/messages` | メッセージ履歴取得              | [詳細](./infrastructure/src/functions/chat-sessions/README.md) |
 | POST     | `/chat/messages/{id}/feedback` | フィードバック送信              | [詳細](./infrastructure/src/functions/chat-sessions/README.md) |
 
@@ -681,6 +681,7 @@ PENDING_UPLOAD → PROCESSING → COMPLETED
 ```
 
 詳細は各関数の README を参照してください：
+
 - [Trigger Function](./infrastructure/src/functions/trigger/README.md)
 - [Processor Function](./infrastructure/src/functions/processor/README.md)
 - [Cleanup Function](./infrastructure/src/functions/cleanup/README.md)
@@ -817,29 +818,29 @@ npm audit fix
 
 #### Lambda 関数
 
-| メトリクス | 説明 | アラート推奨閾値 |
-|-----------|------|----------------|
-| `Invocations` | 実行回数 | - |
-| `Errors` | エラー数 | > 10/分 |
-| `Duration` | 実行時間 | > 5秒（P95） |
-| `Throttles` | スロットル数 | > 0 |
-| `ConcurrentExecutions` | 同時実行数 | > 80% |
+| メトリクス             | 説明         | アラート推奨閾値 |
+| ---------------------- | ------------ | ---------------- |
+| `Invocations`          | 実行回数     | -                |
+| `Errors`               | エラー数     | > 10/分          |
+| `Duration`             | 実行時間     | > 5秒（P95）     |
+| `Throttles`            | スロットル数 | > 0              |
+| `ConcurrentExecutions` | 同時実行数   | > 80%            |
 
 #### DynamoDB
 
-| メトリクス | 説明 | アラート推奨閾値 |
-|-----------|------|----------------|
-| `ConsumedReadCapacityUnits` | 読み取り容量 | > 80% |
-| `ConsumedWriteCapacityUnits` | 書き込み容量 | > 80% |
-| `ThrottledRequests` | スロットルリクエスト | > 0 |
+| メトリクス                   | 説明                 | アラート推奨閾値 |
+| ---------------------------- | -------------------- | ---------------- |
+| `ConsumedReadCapacityUnits`  | 読み取り容量         | > 80%            |
+| `ConsumedWriteCapacityUnits` | 書き込み容量         | > 80%            |
+| `ThrottledRequests`          | スロットルリクエスト | > 0              |
 
 #### Step Functions
 
-| メトリクス | 説明 | アラート推奨閾値 |
-|-----------|------|----------------|
-| `ExecutionsStarted` | 実行開始数 | - |
-| `ExecutionsFailed` | 失敗数 | > 5/時間 |
-| `ExecutionsTimedOut` | タイムアウト数 | > 0 |
+| メトリクス           | 説明           | アラート推奨閾値 |
+| -------------------- | -------------- | ---------------- |
+| `ExecutionsStarted`  | 実行開始数     | -                |
+| `ExecutionsFailed`   | 失敗数         | > 5/時間         |
+| `ExecutionsTimedOut` | タイムアウト数 | > 0              |
 
 ### CloudWatch Logs
 
@@ -911,15 +912,15 @@ CloudWatch ダッシュボードで以下を可視化することを推奨しま
 
 ### コスト見積もり（月間）
 
-| サービス | 開発環境 | 本番環境（推定） |
-|---------|---------|----------------|
-| Lambda | $5-10 | $20-50 |
-| DynamoDB | $5-10 | $30-100 |
-| S3 | $1-5 | $10-30 |
-| Step Functions | $1-3 | $5-20 |
-| API Gateway | $1-3 | $5-15 |
-| Bedrock | 従量課金 | 従量課金 |
-| **合計** | **$13-31** | **$70-215** |
+| サービス       | 開発環境   | 本番環境（推定） |
+| -------------- | ---------- | ---------------- |
+| Lambda         | $5-10      | $20-50           |
+| DynamoDB       | $5-10      | $30-100          |
+| S3             | $1-5       | $10-30           |
+| Step Functions | $1-3       | $5-20            |
+| API Gateway    | $1-3       | $5-15            |
+| Bedrock        | 従量課金   | 従量課金         |
+| **合計**       | **$13-31** | **$70-215**      |
 
 > **注意**: Bedrock のコストは使用量に応じて変動します。詳細は [AWS Bedrock 料金](https://aws.amazon.com/bedrock/pricing/) を参照してください。
 
@@ -1006,6 +1007,7 @@ aws stepfunctions describe-execution \
 **症状**: `Failed to connect to Pinecone`
 
 **解決策**:
+
 - SSM Parameter Store に API キーが正しく保存されているか確認
 - Pinecone インデックス名が正しいか確認
 - ネットワーク接続を確認（VPC 設定がある場合）
@@ -1015,6 +1017,7 @@ aws stepfunctions describe-execution \
 **症状**: `AccessDeniedException`
 
 **解決策**:
+
 - Bedrock のモデルアクセスを有効化
 - IAM ロールに Bedrock の権限が付与されているか確認
 
@@ -1023,6 +1026,7 @@ aws stepfunctions describe-execution \
 **症状**: `CORS policy: No 'Access-Control-Allow-Origin' header`
 
 **解決策**:
+
 - `ALLOWED_ORIGINS` 環境変数にフロントエンドのURLを設定
 - API Gateway の CORS 設定を確認
 
@@ -1056,6 +1060,7 @@ aws stepfunctions describe-execution \
 ```
 
 **Type**:
+
 - `feat`: 新機能
 - `fix`: バグ修正
 - `docs`: ドキュメント
@@ -1065,6 +1070,7 @@ aws stepfunctions describe-execution \
 - `chore`: その他
 
 **例**:
+
 ```
 feat: Add document duplicate detection
 
