@@ -81,6 +81,41 @@ describe("Bedrock Client", () => {
 
       expect(bedrockMock.calls()).toHaveLength(6);
     });
+
+    it("should return empty array when texts list is empty", async () => {
+      const result = await generateEmbeddings([]);
+      expect(result).toEqual([]);
+      expect(bedrockMock.calls()).toHaveLength(0);
+    });
+
+    it("should retry on throttling errors and eventually succeed", async () => {
+      // 1回目: ThrottlingException, 2回目: Success
+      bedrockMock
+        .on(InvokeModelCommand)
+        .rejectsOnce(
+          Object.assign(new Error("ThrottlingException"), {
+            name: "ThrottlingException",
+          })
+        )
+        .resolves({
+          body: encodeResponse({ embedding: [1, 2, 3] }),
+        });
+
+      // タイムアウトを延長（リトライの待機時間を考慮）
+      const result = await generateEmbeddings(["text"]);
+
+      expect(result).toEqual([[1, 2, 3]]);
+      expect(bedrockMock.calls()).toHaveLength(2);
+    }, 10000); // 10秒のタイムアウト
+
+    it("should not retry on non-throttling errors", async () => {
+      // 常に一般的なエラーを投げる
+      bedrockMock.on(InvokeModelCommand).rejects(new Error("Some Error"));
+
+      await expect(generateEmbeddings(["text"])).rejects.toThrow("Some Error");
+      // リトライされず1回だけ呼ばれること
+      expect(bedrockMock.calls()).toHaveLength(1);
+    });
   });
 
   describe("invokeClaudeStream", () => {

@@ -1,9 +1,25 @@
 // 環境変数の設定
 process.env.PINECONE_API_KEY_PARAMETER_NAME = "/test/pinecone-api-key";
 
-import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { Pinecone } from "@pinecone-database/pinecone";
-import { mockClient } from "aws-sdk-client-mock";
+
+// SSM クライアントは完全にモックして、AWS SDK の内部実装（credential-provider など）に依存しないようにする
+const ssmSendMock = jest.fn();
+
+jest.mock("@aws-sdk/client-ssm", () => {
+  const actual = jest.requireActual("@aws-sdk/client-ssm");
+  return {
+    // 実際のコマンドクラスはそのまま利用（インスタンスはテストで検証しない）
+    GetParameterCommand: actual.GetParameterCommand,
+    // SSMClient は send メソッドだけを持つシンプルなモックに差し替え
+    SSMClient: jest.fn().mockImplementation(() => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      send: (...args: any[]) => ssmSendMock(...args),
+    })),
+  };
+});
+
+import { GetParameterCommand } from "@aws-sdk/client-ssm";
 
 import {
   createPineconeClient,
@@ -16,9 +32,6 @@ import {
 } from "../../../src/shared/clients/pinecone";
 
 // --- Mocks Setup ---
-
-// 1. AWS SSM Mock
-const ssmMock = mockClient(SSMClient);
 
 // 2. Pinecone Mock
 // index() メソッドが返すオブジェクト（操作用メソッドを持つ）を定義
@@ -42,7 +55,7 @@ jest.mock("@pinecone-database/pinecone", () => {
 
 describe("Pinecone Client Utility", () => {
   beforeEach(() => {
-    ssmMock.reset();
+    ssmSendMock.mockReset();
     jest.clearAllMocks();
 
     // モックのデフォルト戻り値設定
@@ -56,22 +69,37 @@ describe("Pinecone Client Utility", () => {
   // getPineconeApiKey
   // ==========================================
   describe("getPineconeApiKey", () => {
+    // エラーテストを最初に実行（キャッシュの影響を回避）
+    // 注意: このテストは他のテストより先に実行される必要があります
+    it("should throw AppError with INTERNAL_SERVER_ERROR when API key is missing", async () => {
+      ssmSendMock.mockResolvedValue({
+        Parameter: undefined,
+      });
+
+      await expect(getPineconeApiKey()).rejects.toMatchObject({
+        statusCode: 500,
+        errorCode: expect.stringContaining("INTERNAL_SERVER_ERROR"),
+        details: { message: "Pinecone API key not found" },
+      });
+      expect(ssmSendMock).toHaveBeenCalledTimes(1);
+      expect(ssmSendMock.mock.calls[0][0]).toBeInstanceOf(GetParameterCommand);
+    });
+
     it("should fetch API key from SSM Parameter Store and cache it", async () => {
       // 1回目の呼び出し: SSM Parameter Storeから取得
-      ssmMock.on(GetParameterCommand).resolves({
+      ssmSendMock.mockResolvedValue({
         Parameter: { Value: "test-api-key" },
       });
 
-      // 注: モジュールレベルの変数(cachedPineconeApiKey)の状態に依存するため、
-      // テストの実行順序によってはキャッシュが残っている可能性があります。
       const apiKey1 = await getPineconeApiKey();
       expect(apiKey1).toBe("test-api-key");
-      expect(ssmMock.calls()).toHaveLength(1);
+      expect(ssmSendMock).toHaveBeenCalledTimes(1);
 
       // 2回目の呼び出し: キャッシュが使われるはず
       const apiKey2 = await getPineconeApiKey();
       expect(apiKey2).toBe("test-api-key");
-      expect(ssmMock.calls()).toHaveLength(1); // 呼び出し回数が増えていないこと
+      // 追加の SSM 呼び出しは行われない
+      expect(ssmSendMock).toHaveBeenCalledTimes(1);
     });
   });
 

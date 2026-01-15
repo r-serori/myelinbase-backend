@@ -1,12 +1,15 @@
 import { APIGatewayProxyEvent, Context } from "aws-lambda";
+import { z } from "zod";
 
 import { ErrorCode } from "../types/error-code";
 
 import {
   apiHandler,
   AppError,
+  logger,
   streamApiHandler,
   StreamHelper,
+  validateJson,
 } from "./api-handler";
 
 // テスト用の環境変数設定
@@ -132,6 +135,29 @@ describe("API Handler Utils", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers?.["Access-Control-Allow-Methods"]).toBeDefined();
     });
+
+    it("should return empty object body when logic returns null", async () => {
+      const logic = () => Promise.resolve(null);
+      const wrappedHandler = apiHandler(logic);
+
+      const response = await wrappedHandler(createEvent(), mockContext);
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(JSON.stringify({}));
+    });
+
+    it("should map ConditionalCheckFailedException to RESOURCE_NOT_FOUND", async () => {
+      const error = new Error("Conditional failed");
+      error.name = "ConditionalCheckFailedException";
+
+      const logic = () => Promise.reject(error);
+      const wrappedHandler = apiHandler(logic);
+
+      const res = await wrappedHandler(createEvent(), mockContext);
+      expect(res.statusCode).toBe(404);
+      const body = JSON.parse(res.body);
+      expect(body.errorCode).toBe(ErrorCode.RESOURCE_NOT_FOUND);
+    });
   });
 
   describe("streamApiHandler (Streaming - Local Mode)", () => {
@@ -250,6 +276,114 @@ describe("API Handler Utils", () => {
       expect(response.statusCode).toBe(403);
       const body = JSON.parse(response.body);
       expect(body.errorCode).toBe("CORS_FORBIDDEN");
+    });
+  });
+
+  describe("validateJson", () => {
+    it("should parse and validate JSON body with schema", () => {
+      const schema = z.object({
+        name: z.string(),
+        age: z.number(),
+      });
+
+      const result = validateJson('{"name":"Alice","age":30}', schema);
+      expect(result).toEqual({ name: "Alice", age: 30 });
+    });
+
+    it("should throw AppError with MISSING_PARAMETER when body is null", () => {
+      const schema = z.object({ value: z.string() });
+
+      expect(() => validateJson(null, schema)).toThrow(AppError);
+      try {
+        validateJson(null, schema);
+      } catch (err) {
+        const appError = err as AppError;
+        expect(appError.statusCode).toBe(400);
+        expect(appError.errorCode).toBe(ErrorCode.MISSING_PARAMETER);
+      }
+    });
+
+    it("should throw AppError with INVALID_PARAMETER for invalid JSON", () => {
+      const schema = z.object({ value: z.string() });
+
+      expect(() => validateJson("invalid-json", schema)).toThrow(AppError);
+      try {
+        validateJson("invalid-json", schema);
+      } catch (err) {
+        const appError = err as AppError;
+        expect(appError.statusCode).toBe(400);
+        expect(appError.errorCode).toBe(ErrorCode.INVALID_PARAMETER);
+      }
+    });
+
+    it("should throw AppError with schema-specified error code if it matches ErrorCode", () => {
+      const schema = z.object({
+        value: z.string().min(1, ErrorCode.INVALID_PARAMETER),
+      });
+
+      expect(() => validateJson('{"value":""}', schema)).toThrow(AppError);
+      try {
+        validateJson('{"value":""}', schema);
+      } catch (err) {
+        const appError = err as AppError;
+        expect(appError.statusCode).toBe(400);
+        expect(appError.errorCode).toBe(ErrorCode.INVALID_PARAMETER);
+      }
+    });
+
+    it("should use VALIDATION_FAILED when schema message is not a known ErrorCode", () => {
+      const schema = z.object({
+        value: z.string().min(1, "CUSTOM_MESSAGE"),
+      });
+
+      expect(() => validateJson('{"value":""}', schema)).toThrow(AppError);
+      try {
+        validateJson('{"value":""}', schema);
+      } catch (err) {
+        const appError = err as AppError;
+        expect(appError.statusCode).toBe(400);
+        expect(appError.errorCode).toBe(ErrorCode.VALIDATION_FAILED);
+        expect(appError.message).toBe("CUSTOM_MESSAGE");
+      }
+    });
+  });
+
+  describe("logger", () => {
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    beforeEach(() => {
+      console.error = jest.fn();
+      console.warn = jest.fn();
+    });
+
+    afterEach(() => {
+      console.error = originalError;
+      console.warn = originalWarn;
+    });
+
+    it("should log ERROR level with JSON payload", () => {
+      logger("ERROR", "Something went wrong", { foo: "bar" });
+
+      expect(console.error).toHaveBeenCalledTimes(1);
+      const logged = (console.error as jest.Mock).mock.calls[0][0];
+      const parsed = JSON.parse(logged);
+      expect(parsed.level).toBe("ERROR");
+      expect(parsed.message).toBe("Something went wrong");
+      expect(parsed.foo).toBe("bar");
+      expect(typeof parsed.timestamp).toBe("string");
+    });
+
+    it("should log WARN level with JSON payload", () => {
+      logger("WARN", "Be careful", { context: "test" });
+
+      expect(console.warn).toHaveBeenCalledTimes(1);
+      const logged = (console.warn as jest.Mock).mock.calls[0][0];
+      const parsed = JSON.parse(logged);
+      expect(parsed.level).toBe("WARN");
+      expect(parsed.message).toBe("Be careful");
+      expect(parsed.context).toBe("test");
+      expect(typeof parsed.timestamp).toBe("string");
     });
   });
 });

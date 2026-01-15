@@ -135,6 +135,14 @@ describe("Cleanup Function (DynamoDB Stream)", () => {
     await handler(event);
 
     expect(mockDeleteS3Object).not.toHaveBeenCalled();
+    // WARN ログが出力されていること
+    expect(mockLogger).toHaveBeenCalledWith(
+      "WARN",
+      "No s3Key found for document cleanup",
+      expect.objectContaining({
+        documentId: "doc-123",
+      })
+    );
   });
 
   it("should log error if S3 deletion fails", async () => {
