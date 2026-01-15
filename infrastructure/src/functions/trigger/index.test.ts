@@ -218,6 +218,276 @@ describe("Trigger Function", () => {
       const batchResponse = result as SQSBatchResponse;
       expect(batchResponse.batchItemFailures).toHaveLength(1);
     });
+
+    it("should handle TIMED_OUT status from Step Functions", async () => {
+      sfnMock.on(StartSyncExecutionCommand).resolves({
+        status: "TIMED_OUT",
+        error: "ExecutionTimedOut",
+        cause: "State Machine timed out after maximum execution time.",
+      });
+
+      docClientMock.on(UpdateCommand).resolves({});
+
+      const event = createSQSEventWithS3Body(
+        "test-bucket",
+        "uploads/u/doc-timeout"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
+
+      expect(docClientMock.calls()).toHaveLength(1);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateArgs = docClientMock.call(0).args[0].input as any;
+      expect(updateArgs.Key).toEqual({ documentId: "doc-timeout" });
+      expect(updateArgs.ExpressionAttributeValues?.[":status"]).toBe("FAILED");
+      expect(updateArgs.ExpressionAttributeValues?.[":error"]).toContain(
+        "timed out"
+      );
+    });
+
+    it("should retry SQS message if UpdateCommand fails after SFN failure", async () => {
+      sfnMock.on(StartSyncExecutionCommand).resolves({
+        status: "FAILED",
+        error: "SomeError",
+        cause: "Something went wrong",
+      });
+
+      docClientMock.on(UpdateCommand).rejects(new Error("DynamoDB Error"));
+
+      const event = createSQSEventWithS3Body(
+        "test-bucket",
+        "uploads/u/doc-update-fail"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
+
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(1);
+    });
+
+    it("should handle multiple S3 records in one SQS message", async () => {
+      sfnMock.on(StartSyncExecutionCommand).resolves({
+        status: "SUCCEEDED",
+      });
+
+      const s3Event = {
+        Records: [
+          {
+            s3: {
+              bucket: { name: "test-bucket" },
+              object: { key: "uploads/user-1/doc-1" },
+            },
+          },
+          {
+            s3: {
+              bucket: { name: "test-bucket" },
+              object: { key: "uploads/user-2/doc-2" },
+            },
+          },
+        ],
+      };
+
+      const event: SQSEvent = {
+        Records: [
+          {
+            messageId: "msg-1",
+            receiptHandle: "handle-1",
+            body: JSON.stringify(s3Event),
+            attributes: {
+              ApproximateReceiveCount: "1",
+              SentTimestamp: "1234567890",
+              SenderId: "test-sender",
+              ApproximateFirstReceiveTimestamp: "1234567890",
+            },
+            messageAttributes: {},
+            md5OfBody: "test-md5",
+            eventSource: "aws:sqs",
+            eventSourceARN:
+              "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+            awsRegion: "ap-northeast-1",
+          },
+        ],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
+
+      expect(sfnMock.calls()).toHaveLength(2);
+    });
+
+    it("should skip SQS message if S3 event has no Records", async () => {
+      const s3Event = { Records: [] };
+
+      const event: SQSEvent = {
+        Records: [
+          {
+            messageId: "msg-1",
+            receiptHandle: "handle-1",
+            body: JSON.stringify(s3Event),
+            attributes: {
+              ApproximateReceiveCount: "1",
+              SentTimestamp: "1234567890",
+              SenderId: "test-sender",
+              ApproximateFirstReceiveTimestamp: "1234567890",
+            },
+            messageAttributes: {},
+            md5OfBody: "test-md5",
+            eventSource: "aws:sqs",
+            eventSourceARN:
+              "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+            awsRegion: "ap-northeast-1",
+          },
+        ],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
+
+      expect(sfnMock.calls()).toHaveLength(0);
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(0);
+    });
+
+    it("should skip SQS message if bucket or key is missing", async () => {
+      const s3Event = {
+        Records: [
+          {
+            s3: {
+              bucket: { name: "test-bucket" },
+              // object.key missing
+            },
+          },
+        ],
+      };
+
+      const event: SQSEvent = {
+        Records: [
+          {
+            messageId: "msg-1",
+            receiptHandle: "handle-1",
+            body: JSON.stringify(s3Event),
+            attributes: {
+              ApproximateReceiveCount: "1",
+              SentTimestamp: "1234567890",
+              SenderId: "test-sender",
+              ApproximateFirstReceiveTimestamp: "1234567890",
+            },
+            messageAttributes: {},
+            md5OfBody: "test-md5",
+            eventSource: "aws:sqs",
+            eventSourceARN:
+              "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+            awsRegion: "ap-northeast-1",
+          },
+        ],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
+
+      expect(sfnMock.calls()).toHaveLength(0);
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(0);
+    });
+
+    it("should handle multiple SQS records", async () => {
+      sfnMock.on(StartSyncExecutionCommand).resolves({
+        status: "SUCCEEDED",
+      });
+
+      const event: SQSEvent = {
+        Records: [
+          {
+            messageId: "msg-1",
+            receiptHandle: "handle-1",
+            body: JSON.stringify({
+              Records: [
+                {
+                  s3: {
+                    bucket: { name: "test-bucket" },
+                    object: { key: "uploads/user-1/doc-1" },
+                  },
+                },
+              ],
+            }),
+            attributes: {
+              ApproximateReceiveCount: "1",
+              SentTimestamp: "1234567890",
+              SenderId: "test-sender",
+              ApproximateFirstReceiveTimestamp: "1234567890",
+            },
+            messageAttributes: {},
+            md5OfBody: "test-md5",
+            eventSource: "aws:sqs",
+            eventSourceARN:
+              "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+            awsRegion: "ap-northeast-1",
+          },
+          {
+            messageId: "msg-2",
+            receiptHandle: "handle-2",
+            body: JSON.stringify({
+              Records: [
+                {
+                  s3: {
+                    bucket: { name: "test-bucket" },
+                    object: { key: "uploads/user-2/doc-2" },
+                  },
+                },
+              ],
+            }),
+            attributes: {
+              ApproximateReceiveCount: "1",
+              SentTimestamp: "1234567890",
+              SenderId: "test-sender",
+              ApproximateFirstReceiveTimestamp: "1234567890",
+            },
+            messageAttributes: {},
+            md5OfBody: "test-md5",
+            eventSource: "aws:sqs",
+            eventSourceARN:
+              "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+            awsRegion: "ap-northeast-1",
+          },
+        ],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
+
+      expect(sfnMock.calls()).toHaveLength(2);
+    });
+
+    it("should retry SQS message if body is invalid JSON", async () => {
+      const event: SQSEvent = {
+        Records: [
+          {
+            messageId: "msg-1",
+            receiptHandle: "handle-1",
+            body: "invalid json",
+            attributes: {
+              ApproximateReceiveCount: "1",
+              SentTimestamp: "1234567890",
+              SenderId: "test-sender",
+              ApproximateFirstReceiveTimestamp: "1234567890",
+            },
+            messageAttributes: {},
+            md5OfBody: "test-md5",
+            eventSource: "aws:sqs",
+            eventSourceARN:
+              "arn:aws:sqs:ap-northeast-1:123456789012:test-queue",
+            awsRegion: "ap-northeast-1",
+          },
+        ],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
+
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(1);
+      expect(batchResponse.batchItemFailures[0].itemIdentifier).toBe("msg-1");
+    });
   });
 
   describe("Local Environment (STATE_MACHINE_ARN is unset)", () => {
@@ -284,6 +554,108 @@ describe("Trigger Function", () => {
       );
       expect(finalCallPayload.status).toBe("FAILED");
       expect(finalCallPayload.payload.documentId).toBe("doc-fail");
+    });
+
+    it("should handle FunctionError from Lambda invocation", async () => {
+      lambdaMock
+        .on(InvokeCommand)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolvesOnce({ StatusCode: 200, Payload: Buffer.from("{}") as any })
+        .resolvesOnce({
+          StatusCode: 200,
+          FunctionError: "Unhandled",
+
+          Payload: Buffer.from(
+            JSON.stringify({ errorMessage: "Lambda Error" })
+          ) as any,
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolves({ StatusCode: 200, Payload: Buffer.from("{}") as any });
+
+      const event = createSQSEventWithS3Body(
+        "test-bucket",
+        "uploads/fail/doc-lambda-error"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
+
+      expect(lambdaMock.calls()).toHaveLength(3);
+      const finalCallInput = lambdaMock.call(2).args[0]
+        .input as InvokeCommandInput;
+      const finalCallPayload = JSON.parse(
+        Buffer.from(finalCallInput.Payload as Uint8Array).toString()
+      );
+      expect(finalCallPayload.status).toBe("FAILED");
+    });
+
+    it("should handle empty Payload from Lambda invocation", async () => {
+      lambdaMock
+        .on(InvokeCommand)
+        // Step 1: updateStatus (PROCESSING) - 成功
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolvesOnce({ StatusCode: 200, Payload: Buffer.from("{}") as any })
+        // Step 2: extractAndChunk - Payload undefined
+        .resolvesOnce({
+          StatusCode: 200,
+          Payload: undefined,
+        })
+        // Step 3: embedAndUpsert - chunksS3Uri undefined でエラー
+        .rejectsOnce(new Error("chunksS3Uri is required"))
+        // Step 4: updateStatus (FAILED) - エラー処理
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolves({ StatusCode: 200, Payload: Buffer.from("{}") as any });
+
+      const event = createSQSEventWithS3Body(
+        "test-bucket",
+        "uploads/local/doc-empty-payload"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
+
+      // Payload undefined → chunksS3Uri undefined → embedAndUpsert でエラー → updateStatus (FAILED)
+      expect(lambdaMock.calls()).toHaveLength(4);
+    });
+
+    it("should retry SQS message if updateStatus to FAILED fails", async () => {
+      lambdaMock
+        .on(InvokeCommand)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolvesOnce({ StatusCode: 200, Payload: Buffer.from("{}") as any })
+        .rejectsOnce(new Error("Processing Error"))
+        .rejectsOnce(new Error("Update Status Error"));
+
+      const event = createSQSEventWithS3Body(
+        "test-bucket",
+        "uploads/fail/doc-update-status-fail"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await handler(event, {} as any, () => {});
+
+      const batchResponse = result as SQSBatchResponse;
+      expect(batchResponse.batchItemFailures).toHaveLength(1);
+    });
+
+    it("should handle extractAndChunk returning empty chunksS3Uri", async () => {
+      const extractResult = { chunksS3Uri: "" };
+      const payloadBuffer = Buffer.from(JSON.stringify(extractResult));
+
+      lambdaMock
+        .on(InvokeCommand)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolvesOnce({ StatusCode: 200, Payload: Buffer.from("{}") as any })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolvesOnce({ StatusCode: 200, Payload: payloadBuffer as any })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .resolves({ StatusCode: 200, Payload: Buffer.from("{}") as any });
+
+      const event = createSQSEventWithS3Body(
+        "test-bucket",
+        "uploads/local/doc-empty-chunks"
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await handler(event, {} as any, () => {});
+
+      expect(lambdaMock.calls()).toHaveLength(4);
     });
   });
 });

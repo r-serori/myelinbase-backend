@@ -248,6 +248,49 @@ describe("Documents Function (Auth Integration)", () => {
         TEST_USER_ID
       );
     });
+
+    it("should return empty array if no documents found", async () => {
+      ddbMock.on(QueryCommand).resolves({
+        Items: [],
+      });
+
+      const event = createEvent("GET", "/documents");
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.documents).toEqual([]);
+    });
+
+    it("should filter out DELETED documents", async () => {
+      // DynamoDB の FilterExpression はモックでは自動処理されないため、
+      // 実装が FilterExpression を正しく設定していることを確認し、
+      // モックはフィルタリング済みの結果を返す
+      ddbMock.on(QueryCommand).resolves({
+        Items: [
+          {
+            ownerId: TEST_USER_ID,
+            documentId: "doc-1",
+            fileName: "test1.pdf",
+            status: "COMPLETED",
+          },
+          // DELETED ドキュメントは FilterExpression で除外されるため、モックでは返さない
+        ],
+      });
+
+      const event = createEvent("GET", "/documents");
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.documents).toHaveLength(1);
+      expect(body.documents[0].documentId).toBe("doc-1");
+
+      // FilterExpression が正しく設定されていることを確認
+      const callArgs = ddbMock.call(0).args[0].input as QueryCommandInput;
+      expect(callArgs.FilterExpression).toBe("#status <> :deleted");
+      expect(callArgs.ExpressionAttributeValues?.[":deleted"]).toBe("DELETED");
+    });
   });
 
   // ==========================================
@@ -308,12 +351,97 @@ describe("Documents Function (Auth Integration)", () => {
         3600
       );
     });
+
+    it("should return error if document is not COMPLETED", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          ownerId: TEST_USER_ID,
+          documentId: "doc-1",
+          fileName: "test.pdf",
+          status: "PROCESSING",
+          s3Key: "uploads/key",
+          contentType: "application/pdf",
+        },
+      });
+
+      const event = createEvent("GET", "/documents/doc-1/download-url", {
+        id: "doc-1",
+      });
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.errorCode).toBe(ErrorCode.DOCUMENTS_NOT_READY_FOR_DOWNLOAD);
+    });
+
+    it("should return error if s3Key is missing", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          ownerId: TEST_USER_ID,
+          documentId: "doc-1",
+          fileName: "test.pdf",
+          status: "COMPLETED",
+          contentType: "application/pdf",
+          // s3Key missing
+        },
+      });
+
+      const event = createEvent("GET", "/documents/doc-1/download-url", {
+        id: "doc-1",
+      });
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.errorCode).toBe(ErrorCode.DOCUMENTS_NOT_READY_FOR_DOWNLOAD);
+    });
   });
 
   // ==========================================
   // POST /documents/upload (Upload Request)
   // ==========================================
   describe("POST /documents/upload", () => {
+    it("should return validation error for empty files array", async () => {
+      const body: UploadRequestBody = {
+        files: [],
+      };
+
+      const event = createEvent("POST", "/documents/upload", null, body);
+      const result = await invokeHandler(event);
+
+      // スキーマバリデーション: files.min(1) によりエラー
+      expect(result.statusCode).toBe(400);
+      const resBody = JSON.parse(result.body);
+      expect(resBody.errorCode).toBe(ErrorCode.DOCUMENTS_SELECTION_EMPTY);
+    });
+
+    it("should handle file with zero size", async () => {
+      ddbMock
+        .on(QueryCommand, { IndexName: "FileHashIndex" })
+        .resolves({ Items: [] });
+      ddbMock
+        .on(QueryCommand, { IndexName: "FileNameIndex" })
+        .resolves({ Items: [] });
+      ddbMock.on(PutCommand).resolves({});
+
+      const body: UploadRequestBody = {
+        files: [
+          {
+            fileName: "empty.txt",
+            contentType: "text/plain",
+            fileSize: 0,
+          },
+        ],
+      };
+
+      const event = createEvent("POST", "/documents/upload", null, body);
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(202);
+      const resBody = JSON.parse(result.body);
+      expect(resBody.results[0].status).toBe("success");
+    });
+
     it("should fail with DUPLICATE_CONTENT if fileHash exists in DB", async () => {
       // 1. FileHashIndex で重複が見つかるようにモック
       ddbMock.on(QueryCommand, { IndexName: "FileHashIndex" }).resolves({
@@ -523,6 +651,28 @@ describe("Documents Function (Auth Integration)", () => {
       expect(updateArgs.Key?.documentId).toBe("doc-1");
       expect(updateArgs.UpdateExpression).toContain("SET #status = :deleted");
     });
+
+    it("should return error if document not found", async () => {
+      ddbMock
+        .on(UpdateCommand)
+        .rejects(new Error("ConditionalCheckFailedException"));
+
+      const event = createEvent("DELETE", "/documents/doc-1", { id: "doc-1" });
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBeGreaterThanOrEqual(400);
+    });
+
+    it("should return error if owner does not match", async () => {
+      ddbMock
+        .on(UpdateCommand)
+        .rejects(new Error("ConditionalCheckFailedException"));
+
+      const event = createEvent("DELETE", "/documents/doc-1", { id: "doc-1" });
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBeGreaterThanOrEqual(400);
+    });
   });
 
   // ==========================================
@@ -540,6 +690,34 @@ describe("Documents Function (Auth Integration)", () => {
       const resBody = JSON.parse(result.body);
       expect(resBody.results).toHaveLength(2);
       expect(ddbMock.commandCalls(UpdateCommand).length).toBe(2);
+    });
+
+    it("should return validation error for empty documentIds array", async () => {
+      const body: BatchDeleteBody = { documentIds: [] };
+      const event = createEvent("POST", "/documents/batch-delete", null, body);
+      const result = await invokeHandler(event);
+
+      // スキーマバリデーション: documentIds.min(1) によりエラー
+      expect(result.statusCode).toBe(400);
+      const resBody = JSON.parse(result.body);
+      expect(resBody.errorCode).toBe(ErrorCode.DOCUMENTS_SELECTION_EMPTY);
+    });
+
+    it("should handle partial failures in batch deletion", async () => {
+      ddbMock
+        .on(UpdateCommand)
+        .resolvesOnce({}) // doc-1 succeeds
+        .rejectsOnce(new Error("Delete failed")); // doc-2 fails
+
+      const body: BatchDeleteBody = { documentIds: ["doc-1", "doc-2"] };
+      const event = createEvent("POST", "/documents/batch-delete", null, body);
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(200);
+      const resBody = JSON.parse(result.body);
+      expect(resBody.results).toHaveLength(2);
+      expect(resBody.results[0].status).toBe("success");
+      expect(resBody.results[1].status).toBe("error");
     });
   });
 
@@ -598,6 +776,77 @@ describe("Documents Function (Auth Integration)", () => {
 
       // apiHandler がエラーをキャッチしてエラーレスポンスを返す
       expect(result.statusCode).toBeGreaterThanOrEqual(400);
+    });
+
+    it("should handle empty tags array", async () => {
+      ddbMock.on(UpdateCommand).resolves({
+        Attributes: {
+          documentId: "doc-1",
+          ownerId: TEST_USER_ID,
+          tags: [],
+          updatedAt: "2023-01-01T00:00:00Z",
+        },
+      });
+
+      const body: UpdateTagsBody = { tags: [] };
+      const event = createEvent(
+        "PATCH",
+        "/documents/doc-1/tags",
+        { id: "doc-1" },
+        body
+      );
+
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(204);
+      const updateArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      expect(updateArgs.ExpressionAttributeValues?.[":tags"]).toEqual([]);
+    });
+
+    it("should filter out all whitespace-only tags", async () => {
+      ddbMock.on(UpdateCommand).resolves({
+        Attributes: {
+          documentId: "doc-1",
+          ownerId: TEST_USER_ID,
+          tags: [],
+          updatedAt: "2023-01-01T00:00:00Z",
+        },
+      });
+
+      const body: UpdateTagsBody = { tags: [" ", "  ", "", "\t"] };
+      const event = createEvent(
+        "PATCH",
+        "/documents/doc-1/tags",
+        { id: "doc-1" },
+        body
+      );
+
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(204);
+      const updateArgs = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      expect(updateArgs.ExpressionAttributeValues?.[":tags"]).toEqual([]);
+    });
+  });
+
+  // ==========================================
+  // Error Cases
+  // ==========================================
+  describe("Error Cases", () => {
+    it("should return 404 for unknown path", async () => {
+      const event = createEvent("GET", "/unknown/path");
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(404);
+    });
+
+    it("should return 400 if documentId is missing in path", async () => {
+      const event = createEvent("GET", "/documents/", {});
+      const result = await invokeHandler(event);
+
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.errorCode).toBe(ErrorCode.MISSING_PARAMETER);
     });
   });
 });

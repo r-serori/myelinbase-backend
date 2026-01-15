@@ -60,29 +60,6 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
 }
 
 /**
- * 通常のチャンク分割（旧ロジック・バックアップ用）あとで削除する
- */
-export function splitTextIntoChunks(
-  text: string,
-  chunkSize: number = 1000,
-  overlap: number = 200
-): string[] {
-  const chunks: string[] = [];
-  let start = 0;
-
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    const chunk = sanitizeText(text.substring(start, end)).trim();
-    if (chunk.length > 0) {
-      chunks.push(chunk);
-    }
-    start += chunkSize - overlap;
-  }
-
-  return chunks.filter((chunk) => chunk.length > 0);
-}
-
-/**
  * Small to Big アルゴリズム用のチャンク分割
  * Parent(Context)の中にChild(Vector Search Target)を含める構造を作成
  */
@@ -97,6 +74,9 @@ export function createSmallToBigChunks(
   let parentStart = 0;
   let globalChunkIndex = 0;
 
+  const parentStep = Math.max(1, parentSize - parentOverlap);
+  const childStep = Math.max(1, childSize - childOverlap);
+
   // 1. Parentループ
   while (parentStart < text.length) {
     const parentEnd = Math.min(parentStart + parentSize, text.length);
@@ -105,7 +85,9 @@ export function createSmallToBigChunks(
     const parentId = randomUUID(); // Parent識別用
 
     if (parentText.length === 0) {
-      parentStart += parentSize - parentOverlap;
+      // 親テキストが空の場合でも無限ループ防止のために進める
+      if (parentSize <= parentOverlap) break;
+      parentStart += parentStep;
       continue;
     }
 
@@ -128,11 +110,10 @@ export function createSmallToBigChunks(
           childRelativeStart + childSize,
           parentText.length
         );
-        const rawChildText = parentText.substring(
-          childRelativeStart,
-          childRelativeEnd
-        );
-        const childText = sanitizeText(rawChildText).trim();
+
+        const childText = parentText
+          .substring(childRelativeStart, childRelativeEnd)
+          .trim();
 
         if (childText.length > 0) {
           chunks.push({
@@ -143,13 +124,14 @@ export function createSmallToBigChunks(
           });
         }
 
-        childRelativeStart += childSize - childOverlap;
-
         if (childSize <= childOverlap) break;
+
+        childRelativeStart += childStep;
       }
     }
 
-    parentStart += parentSize - parentOverlap;
+    if (parentSize <= parentOverlap) break;
+    parentStart += parentStep;
   }
 
   return chunks;
@@ -197,52 +179,29 @@ export function createDocumentMetadata(
 
   return meta;
 }
-
 /**
  * 無効なUnicode文字（孤立したサロゲートペアなど）を除去
  * Pineconeは無効なUnicodeコードポイントを受け付けないため
+ * * 修正: 配列操作によるメモリ肥大化を防ぐため、正規表現による置換に変更
  */
 export function sanitizeText(text: string): string {
-  let result = "";
-
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-
-    // High surrogate (D800-DBFF)
-    if (code >= 0xd800 && code <= 0xdbff) {
-      // 次の文字がlow surrogateかチェック
-      if (i + 1 < text.length) {
-        const nextCode = text.charCodeAt(i + 1);
-        if (nextCode >= 0xdc00 && nextCode <= 0xdfff) {
-          // 有効なサロゲートペアなので両方追加
-          result += text[i] + text[i + 1];
-          i++; // 次の文字をスキップ
-          continue;
-        }
+  // 高速化: 正規表現で一括置換
+  // \uFFFD (Replacement Character) も削除対象に追加
+  return text.replace(
+    // 1. 有効なサロゲートペア (High + Low) -> そのまま保持 (キャプチャグループ1)
+    // 2. 孤立した High Surrogate -> 削除
+    // 3. 孤立した Low Surrogate -> 削除
+    // 4. 制御文字 (NULL, BEL, BSなど。ただしTab, LF, CRは除く) -> 削除
+    // 5. 置換文字 (U+FFFD) -> 削除 (Buffer変換時に発生する場合があるため)
+    // eslint-disable-next-line no-control-regex
+    /([\uD800-\uDBFF][\uDC00-\uDFFF])|[\uD800-\uDBFF]|[\uDC00-\uDFFF]|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]|\uFFFD/g,
+    (match, validPair) => {
+      // 有効なペアがマッチした場合は、そのペアを返す（削除しない）
+      if (validPair) {
+        return validPair;
       }
-      // 孤立したhigh surrogate - スキップ
-      continue;
+      // それ以外（孤立サロゲート、制御文字、置換文字）は空文字に置換（削除）
+      return "";
     }
-
-    // Low surrogate (DC00-DFFF) - 前にhigh surrogateがなければここに来る
-    if (code >= 0xdc00 && code <= 0xdfff) {
-      // 孤立したlow surrogate - スキップ（これが \udc1b のケース）
-      continue;
-    }
-
-    // 制御文字をスキップ (NULL, BEL, BS, etc.)
-    if (
-      (code >= 0x00 && code <= 0x08) ||
-      code === 0x0b ||
-      code === 0x0c ||
-      (code >= 0x0e && code <= 0x1f) ||
-      code === 0x7f
-    ) {
-      continue;
-    }
-
-    result += text[i];
-  }
-
-  return result;
+  );
 }

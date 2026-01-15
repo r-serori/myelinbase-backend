@@ -1,8 +1,9 @@
-# Chat Agent Function (`src/functions/chat`)
+# Chat Sessions Function (`src/functions/chat-sessions`)
 
 ## 概要
 
-この Lambda 関数は、RAG（Retrieval-Augmented Generation）ベースのチャット機能を提供します。Lambda Function URL を使用したストリーミングレスポンスに対応し、Vercel AI SDK v3.x の UI Message Stream Protocol (NDJSON) 形式でレスポンスを返します。
+この Lambda 関数は、チャットエージェントの **セッションと履歴を管理する REST API** を提供します。  
+実際の RAG チャット推論（Bedrock や Pinecone との連携）は `chat` 関数が担当し、本関数はその周辺のセッションライフサイクルと履歴管理に特化しています。
 
 ## 責務
 
@@ -14,16 +15,12 @@
 
 ## 環境変数
 
-| 変数名                            | 必須 | デフォルト                               | 説明                                |
-| --------------------------------- | :--: | ---------------------------------------- | ----------------------------------- |
-| `TABLE_NAME`                      |  ✅  | -                                        | Chat History DynamoDB テーブル名    |
-| `DOCUMENT_TABLE_NAME`             |  ✅  | -                                        | Documents DynamoDB テーブル名       |
-| `MODEL_ID`                        |  -   | `anthropic.claude-3-haiku-20240307-v1:0` | Bedrock チャットモデル ID           |
-| `USE_MOCK_BEDROCK`                |  -   | `false`                                  | モック Bedrock を使用（ローカル用） |
-| `STAGE`                           |  -   | `local`                                  | 環境（local/dev/prod）              |
-| `ALLOWED_ORIGINS`                 |  -   | -                                        | CORS 許可オリジン                   |
-| `PINECONE_API_KEY_PARAMETER_NAME` |  -   | -                                        | Pinecone API キーのSSMパラメータ名  |
-| `PINECONE_INDEX_NAME`             |  -   | -                                        | Pinecone インデックス名             |
+| 変数名                | 必須 | デフォルト | 説明                               |
+| --------------------- | :--: | --------- | ---------------------------------- |
+| `TABLE_NAME`          |  ✅  | -         | Chat History DynamoDB テーブル名    |
+| `DOCUMENT_TABLE_NAME` |  ✅  | -         | Documents DynamoDB テーブル名       |
+| `STAGE`               |  -   | `local`  | 環境（local/dev/prod）              |
+| `ALLOWED_ORIGINS`     |  -   | -         | CORS 許可オリジン                   |
 
 ## API エンドポイント
 
@@ -193,26 +190,12 @@
 }
 ```
 
-## RAG パイプライン
+## 設計上の位置づけ
 
-メッセージ送信時の処理フローです。
+本関数は **チャットセッションと履歴の CRUD / フィードバック管理** に責務を限定しており、  
+RAG 推論パイプライン自体（Bedrock での生成や Pinecone 検索）は `chat` 関数側で実行されます。
 
-```
-1. ユーザークエリを受信
-     ↓
-2. Bedrock Titan でクエリをエンベディング
-     ↓
-3. Pinecone で類似ベクトルを検索
-     ↓
-4. 検索結果からコンテキストを構築
-     ↓
-5. システムプロンプト + コンテキスト + クエリで
-   Bedrock Claude を呼び出し
-     ↓
-6. ストリーミングでレスポンスを返却
-     ↓
-7. メッセージ履歴を DynamoDB に保存
-```
+RAG パイプラインの詳細は `src/functions/chat/README.md` を参照してください。
 
 ## 認証
 
@@ -267,40 +250,20 @@ API Gateway Authorizer で認証を実施します。
 | `DOCUMENTS_SELECTION_EMPTY`    | 400  | ドキュメント選択が空   |
 | `DOCUMENTS_SELECTION_TOO_MANY` | 400  | ドキュメント選択数超過 |
 
-### ストリーミングエラー
-
-ストリーミング中にエラーが発生した場合、エラーイベントとして配信されます。
-
-```
-3:"サーバーエラーが発生しました"
-d:{"finishReason":"error"}
-```
-
-## ローカル開発での注意点
-
-LocalStack は Lambda Response Streaming を完全にはサポートしていないため、ローカル環境でのストリーミングテストには制限があります。
-
-**推奨アプローチ**:
-
-- 基本的な動作確認はローカルで実施
-- ストリーミング動作の確認は AWS dev 環境で実施
-
-```bash
-# AWS dev 環境へデプロイしてテスト
-npm run deploy:dev
-```
+> **補足**: ストリーミングレスポンスや Lambda Function URL に関する説明は  
+> `src/functions/chat/README.md` に集約しています。
 
 ## テスト
 
 ```bash
 # ユニットテスト実行
 cd infrastructure
-npm run test -- src/functions/chat/
+npm run test -- src/functions/chat-sessions/
 
-# 手動テスト（curl）
+# 手動テスト（curl） - セッション作成
 curl -X POST \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"query": "Hello"}' \
-  "${CHAT_FUNCTION_URL}/chat/sessions/${SESSION_ID}/messages"
+  -d '{"sessionName": "プロジェクト相談"}' \
+  "${API_BASE_URL}/chat/sessions"
 ```

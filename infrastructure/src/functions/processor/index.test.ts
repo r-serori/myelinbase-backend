@@ -139,6 +139,45 @@ describe("Processor Function", () => {
         "Something went wrong"
       );
     });
+
+    it("should truncate error message if too long", async () => {
+      ddbMock.on(UpdateCommand).resolves({});
+
+      const longError = "a".repeat(2000);
+      const event: ProcessorEvent = {
+        action: "updateStatus",
+        status: "FAILED",
+        payload: { documentId: "doc-123" },
+        error: { message: longError },
+      };
+
+      await handler(event);
+
+      const args = ddbMock.call(0).args[0].input as UpdateCommandInput;
+      const errorValue = args.ExpressionAttributeValues?.[":error"] as string;
+      expect(errorValue.length).toBeLessThanOrEqual(1000);
+    });
+
+    it("should throw error if UpdateCommand fails", async () => {
+      ddbMock.on(UpdateCommand).rejects(new Error("DynamoDB Error"));
+
+      const event: ProcessorEvent = {
+        action: "updateStatus",
+        status: "PROCESSING",
+        payload: { documentId: "doc-123" },
+      };
+
+      await expect(handler(event)).rejects.toThrow("DynamoDB Error");
+    });
+
+    it("should throw error if status is missing", async () => {
+      const event = {
+        action: "updateStatus",
+        payload: { documentId: "doc-123" },
+      } as unknown as ProcessorEvent;
+
+      await expect(handler(event)).rejects.toThrow("status is required");
+    });
   });
 
   // ==========================================
@@ -201,6 +240,125 @@ describe("Processor Function", () => {
 
       await expect(handler(event)).rejects.toThrow(
         "Document doc-missing not found"
+      );
+    });
+
+    it("should throw error if extracted text is empty", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          contentType: "text/plain",
+          fileName: "test.txt",
+          ownerId: "user-1",
+        },
+      });
+
+      (extractTextFromS3 as jest.Mock).mockResolvedValue("");
+
+      const event: ProcessorEvent = {
+        action: "extractAndChunk",
+        payload: {
+          documentId: "doc-123",
+          bucket: "my-bucket",
+          key: "uploads/test.txt",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow("Extracted text is empty");
+    });
+
+    it("should throw error if extractTextFromS3 fails", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          contentType: "text/plain",
+          fileName: "test.txt",
+          ownerId: "user-1",
+        },
+      });
+
+      (extractTextFromS3 as jest.Mock).mockRejectedValue(
+        new Error("S3 extraction failed")
+      );
+
+      const event: ProcessorEvent = {
+        action: "extractAndChunk",
+        payload: {
+          documentId: "doc-123",
+          bucket: "my-bucket",
+          key: "uploads/test.txt",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow("S3 extraction failed");
+    });
+
+    it("should throw error if S3 PutObject fails", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          contentType: "text/plain",
+          fileName: "test.txt",
+          ownerId: "user-1",
+        },
+      });
+
+      const longText = "A".repeat(1000);
+      (extractTextFromS3 as jest.Mock).mockResolvedValue(longText);
+
+      s3Mock.on(PutObjectCommand).rejects(new Error("S3 PutObject failed"));
+
+      const event: ProcessorEvent = {
+        action: "extractAndChunk",
+        payload: {
+          documentId: "doc-123",
+          bucket: "my-bucket",
+          key: "uploads/test.txt",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow("S3 PutObject failed");
+    });
+
+    it("should handle very short text (single chunk)", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          contentType: "text/plain",
+          fileName: "test.txt",
+          ownerId: "user-1",
+        },
+      });
+
+      const shortText = "Short";
+      (extractTextFromS3 as jest.Mock).mockResolvedValue(shortText);
+
+      s3Mock.on(PutObjectCommand).resolves({});
+
+      const event: ProcessorEvent = {
+        action: "extractAndChunk",
+        payload: {
+          documentId: "doc-123",
+          bucket: "my-bucket",
+          key: "uploads/test.txt",
+        },
+      };
+
+      const result = (await handler(event)) as ExtractAndChunkResponse;
+
+      expect(result.chunkCount).toBe(1);
+    });
+
+    it("should throw error if bucket or key is missing", async () => {
+      const event = {
+        action: "extractAndChunk",
+        payload: {
+          documentId: "doc-123",
+        },
+      } as unknown as ProcessorEvent;
+
+      await expect(handler(event)).rejects.toThrow(
+        "bucket and key are required"
       );
     });
   });
@@ -319,6 +477,252 @@ describe("Processor Function", () => {
 
       // ID生成確認
       expect(vectors[0].id).toBe("doc-123#0");
+    });
+
+    it("should throw error if chunksS3Uri is invalid", async () => {
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "invalid-uri",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow("Invalid S3 URI");
+    });
+
+    it("should throw error if S3 GetObject fails", async () => {
+      s3Mock.on(GetObjectCommand).rejects(new Error("S3 GetObject failed"));
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow("S3 GetObject failed");
+    });
+
+    it("should throw error if Body is undefined", async () => {
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: undefined,
+      });
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow(
+        "Failed to fetch chunks"
+      );
+    });
+
+    it("should handle empty chunks array", async () => {
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          fileName: "test.pdf",
+          ownerId: "user-1",
+        },
+      });
+
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: {
+          transformToString: () => Promise.resolve(JSON.stringify([])),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      });
+
+      (generateEmbeddings as jest.Mock).mockResolvedValue([]);
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      const result = (await handler(event)) as EmbedAndUpsertResponse;
+
+      expect(result.vectorCount).toBe(0);
+      // 空配列でも generateEmbeddings は呼ばれる（実装の仕様）
+      expect(generateEmbeddings).toHaveBeenCalledWith([]);
+      // 空配列でも upsertDocumentVectors は呼ばれる（実装の仕様）
+      expect(upsertDocumentVectors).toHaveBeenCalledWith(
+        expect.anything(),
+        []
+      );
+    });
+
+    it("should throw error if generateEmbeddings fails", async () => {
+      const mockChunks: ChunkData[] = [
+        {
+          childText: "child-1",
+          parentText: "parent-1",
+          chunkIndex: 0,
+          parentId: "parent-id-1",
+        },
+      ];
+
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          fileName: "test.pdf",
+          ownerId: "user-1",
+        },
+      });
+
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: {
+          transformToString: () => Promise.resolve(JSON.stringify(mockChunks)),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      });
+
+      (generateEmbeddings as jest.Mock).mockRejectedValue(
+        new Error("Embedding generation failed")
+      );
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow(
+        "Embedding generation failed"
+      );
+    });
+
+    it("should throw error if upsertDocumentVectors fails", async () => {
+      const mockChunks: ChunkData[] = [
+        {
+          childText: "child-1",
+          parentText: "parent-1",
+          chunkIndex: 0,
+          parentId: "parent-id-1",
+        },
+      ];
+
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          fileName: "test.pdf",
+          ownerId: "user-1",
+        },
+      });
+
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: {
+          transformToString: () => Promise.resolve(JSON.stringify(mockChunks)),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      });
+
+      (generateEmbeddings as jest.Mock).mockResolvedValue([[0.1, 0.2, 0.3]]);
+      (upsertDocumentVectors as jest.Mock).mockRejectedValue(
+        new Error("Pinecone upsert failed")
+      );
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      await expect(handler(event)).rejects.toThrow("Pinecone upsert failed");
+    });
+
+    it("should delete chunks file from S3 after upsert", async () => {
+      const mockChunks: ChunkData[] = [
+        {
+          childText: "child-1",
+          parentText: "parent-1",
+          chunkIndex: 0,
+          parentId: "parent-id-1",
+        },
+      ];
+
+      ddbMock.on(GetCommand).resolves({
+        Item: {
+          documentId: "doc-123",
+          fileName: "test.pdf",
+          ownerId: "user-1",
+        },
+      });
+
+      s3Mock.on(GetObjectCommand).resolves({
+        Body: {
+          transformToString: () => Promise.resolve(JSON.stringify(mockChunks)),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      });
+
+      (generateEmbeddings as jest.Mock).mockResolvedValue([[0.1, 0.2, 0.3]]);
+
+      const event: ProcessorEvent = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+          chunksS3Uri: "s3://test-bucket/processing/doc-123/chunks.json",
+        },
+      };
+
+      await handler(event);
+
+      // DeleteObjectCommand が呼ばれたことを確認
+      const deleteCalls = s3Mock
+        .calls()
+        .filter((c) => c.args[0].constructor.name === "DeleteObjectCommand");
+      expect(deleteCalls.length).toBeGreaterThan(0);
+    });
+
+    it("should throw error if chunksS3Uri is missing", async () => {
+      const event = {
+        action: "embedAndUpsert",
+        payload: {
+          documentId: "doc-123",
+        },
+      } as unknown as ProcessorEvent;
+
+      await expect(handler(event)).rejects.toThrow(
+        "chunksS3Uri is required"
+      );
+    });
+  });
+
+  // ==========================================
+  // Common Error Cases
+  // ==========================================
+  describe("Common Error Cases", () => {
+    it("should throw error if documentId is missing", async () => {
+      const event = {
+        action: "updateStatus",
+        status: "PROCESSING",
+        payload: {},
+      } as unknown as ProcessorEvent;
+
+      await expect(handler(event)).rejects.toThrow("documentId is required");
+    });
+
+    it("should throw error if payload is missing", async () => {
+      const event = {
+        action: "updateStatus",
+        status: "PROCESSING",
+      } as unknown as ProcessorEvent;
+
+      await expect(handler(event)).rejects.toThrow("documentId is required");
     });
   });
 
