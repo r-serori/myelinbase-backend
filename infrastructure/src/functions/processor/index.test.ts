@@ -518,9 +518,7 @@ describe("Processor Function", () => {
         },
       };
 
-      await expect(handler(event)).rejects.toThrow(
-        "Failed to fetch chunks"
-      );
+      await expect(handler(event)).rejects.toThrow("Failed to fetch chunks");
     });
 
     it("should handle empty chunks array", async () => {
@@ -555,10 +553,7 @@ describe("Processor Function", () => {
       // 空配列でも generateEmbeddings は呼ばれる（実装の仕様）
       expect(generateEmbeddings).toHaveBeenCalledWith([]);
       // 空配列でも upsertDocumentVectors は呼ばれる（実装の仕様）
-      expect(upsertDocumentVectors).toHaveBeenCalledWith(
-        expect.anything(),
-        []
-      );
+      expect(upsertDocumentVectors).toHaveBeenCalledWith(expect.anything(), []);
     });
 
     it("should throw error if generateEmbeddings fails", async () => {
@@ -696,9 +691,7 @@ describe("Processor Function", () => {
         },
       } as unknown as ProcessorEvent;
 
-      await expect(handler(event)).rejects.toThrow(
-        "chunksS3Uri is required"
-      );
+      await expect(handler(event)).rejects.toThrow("chunksS3Uri is required");
     });
   });
 
