@@ -7,7 +7,162 @@
   <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License" />
 </p>
 
-本格的なプロダクションレベルのAWS Serverless RAG（Retrieval-Augmented Generation）アプリケーションのバックエンドシステムです。ドキュメントのアップロード、非同期処理パイプライン、AI によるストリーミングチャット機能を提供します。
+## 🌐 Live Demo
+
+| 環境                   | URL                                              |
+| ---------------------- | ------------------------------------------------ |
+| **アプリケーション**   | [https://myelinbase.com](https://myelinbase.com) |
+| **API エンドポイント** | `https://api.myelinbase.com`                     |
+
+> 📦 **関連リポジトリ**: [frontend](https://github.com/r-serori/myelinbase-frontend) - Next.js フロントエンド
+
+---
+
+AWS Serverless RAG（Retrieval-Augmented Generation）アプリケーションのバックエンドシステムです。ドキュメントのアップロード、非同期処理パイプライン、AI によるストリーミングチャット機能を提供します。
+
+## 🏗️ システムアーキテクチャ
+
+```mermaid
+flowchart TB
+    subgraph Client["🖥️ Client"]
+        Frontend["Next.js 16React 19 / TypeScript"]
+    end
+
+    subgraph Vercel["☁️ Vercel"]
+        VercelEdge["Edge Networkmyelinbase.com"]
+    end
+
+    subgraph AWS["☁️ AWS Cloud (ap-northeast-1)"]
+        subgraph Auth["🔐 Authentication"]
+            Cognito["Amazon CognitoUser Pool"]
+        end
+
+        subgraph API["🌐 API Layer"]
+            APIGW["API Gatewayapi.myelinbase.com"]
+            ChatURL["Lambda Function URLStreaming対応"]
+        end
+
+        subgraph Compute["⚡ Compute"]
+            DocLambda["Documents LambdaCRUD操作"]
+            ChatLambda["Chat Lambdaストリーミング生成"]
+            TriggerLambda["Trigger LambdaS3イベント処理"]
+            ProcessorLambda["Processor LambdaRAGパイプライン"]
+            CleanupLambda["Cleanup Lambdaリソース削除"]
+        end
+
+        subgraph Orchestration["🔄 Orchestration"]
+            StepFunctions["Step FunctionsRAG Pipeline"]
+        end
+
+        subgraph Storage["💾 Storage"]
+            S3["Amazon S3ドキュメント保存"]
+            DynamoDB["DynamoDBメタデータ / 履歴"]
+        end
+
+        subgraph AI["🤖 AI Services"]
+            Bedrock["Amazon BedrockClaude 3 HaikuTitan Embeddings"]
+        end
+    end
+
+    subgraph External["🌍 External"]
+        Pinecone["PineconeVector Database"]
+    end
+
+    Frontend --> VercelEdge
+    VercelEdge --> APIGW
+    VercelEdge --> ChatURL
+
+    APIGW --> Cognito
+    APIGW --> DocLambda
+    ChatURL --> ChatLambda
+
+    DocLambda --> DynamoDB
+    DocLambda --> S3
+
+    S3 -->|ObjectCreated| TriggerLambda
+    TriggerLambda --> StepFunctions
+    StepFunctions --> ProcessorLambda
+
+    ProcessorLambda --> S3
+    ProcessorLambda --> DynamoDB
+    ProcessorLambda --> Bedrock
+    ProcessorLambda --> Pinecone
+
+    ChatLambda --> DynamoDB
+    ChatLambda --> Bedrock
+    ChatLambda --> Pinecone
+
+    DynamoDB -->|Streams| CleanupLambda
+    CleanupLambda --> S3
+    CleanupLambda --> Pinecone
+
+    style Client fill:#e1f5fe
+    style Vercel fill:#f3e5f5
+    style AWS fill:#fff3e0
+    style External fill:#e8f5e9
+```
+
+### 📊 データフロー
+
+#### ドキュメントアップロード → RAG処理
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant API as API Gateway
+    participant L as Documents Lambda
+    participant S3 as S3
+    participant SF as Step Functions
+    participant P as Processor
+    participant B as Bedrock
+    participant PC as Pinecone
+    participant DB as DynamoDB
+
+    U->>F: ファイル選択
+    F->>API: POST /documents/upload
+    API->>L: 署名付きURL発行
+    L->>DB: メタデータ保存 (PENDING)
+    L-->>F: 署名付きURL
+    F->>S3: PUT (直接アップロード)
+
+    S3->>SF: ObjectCreated Event
+    SF->>P: RAGパイプライン開始
+    P->>S3: テキスト抽出
+    P->>P: チャンク分割
+    P->>B: Embedding生成
+    P->>PC: ベクトル保存
+    P->>DB: ステータス更新 (COMPLETED)
+```
+
+#### AIチャット（ストリーミング）
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant C as Chat Lambda
+    participant B as Bedrock
+    participant PC as Pinecone
+    participant DB as DynamoDB
+
+    U->>F: 質問入力
+    F->>C: POST (Function URL)
+    C->>B: クエリEmbedding生成
+    C->>PC: 類似ベクトル検索
+    PC-->>C: 関連チャンク
+    C->>B: Claude 3 (with context)
+
+    loop Streaming
+        B-->>C: Token
+        C-->>F: SSE
+        F-->>U: リアルタイム表示
+    end
+
+    C->>DB: 履歴保存
+```
+
+---
 
 ## 📋 目次
 
