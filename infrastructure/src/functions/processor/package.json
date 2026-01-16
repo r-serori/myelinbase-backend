@@ -1,0 +1,6 @@
+{
+  "name": "stream-processor-function",
+  "version": "1.0.0",
+  "description": "DynamoDB Streams Processor for Document Deletion",
+  "main": "index.ts"
+}

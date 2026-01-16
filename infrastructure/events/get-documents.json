@@ -1,0 +1,21 @@
+{
+  "httpMethod": "GET",
+  "path": "/documents",
+  "headers": {
+    "Authorization": "Bearer mock-jwt-token",
+    "Content-Type": "application/json"
+  },
+  "queryStringParameters": null,
+  "pathParameters": null,
+  "body": null,
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "user-001",
+        "email": "test@example.com",
+        "email_verified": "true"
+      }
+    }
+  },
+  "isBase64Encoded": false
+}

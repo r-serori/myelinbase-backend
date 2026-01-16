@@ -1,0 +1,269 @@
+# Chat Sessions Function (`src/functions/chat-sessions`)
+
+## 概要
+
+この Lambda 関数は、チャットエージェントの **セッションと履歴を管理する REST API** を提供します。  
+実際の RAG チャット推論（Bedrock や Pinecone との連携）は `chat` 関数が担当し、本関数はその周辺のセッションライフサイクルと履歴管理に特化しています。
+
+## 責務
+
+| 責務               | 説明                                               |
+| ------------------ | -------------------------------------------------- |
+| **セッション管理** | チャットセッションの作成、一覧取得、名前変更、削除 |
+| **履歴管理**       | メッセージ履歴の保存と取得                         |
+| **フィードバック** | ユーザーフィードバック（Good/Bad）の収集           |
+
+## 環境変数
+
+| 変数名                | 必須 | デフォルト | 説明                               |
+| --------------------- | :--: | --------- | ---------------------------------- |
+| `TABLE_NAME`          |  ✅  | -         | Chat History DynamoDB テーブル名    |
+| `DOCUMENT_TABLE_NAME` |  ✅  | -         | Documents DynamoDB テーブル名       |
+| `STAGE`               |  -   | `local`  | 環境（local/dev/prod）              |
+| `ALLOWED_ORIGINS`     |  -   | -         | CORS 許可オリジン                   |
+
+## API エンドポイント
+
+### 1. セッション作成
+
+`POST /chat/sessions`
+
+新しいチャットセッションを作成します。
+
+**リクエスト**
+
+```json
+{
+  "sessionName": "プロジェクト相談",
+  "selectedDocumentIds": ["doc-001", "doc-002"]
+}
+```
+
+**バリデーション**
+
+| 項目               | 制限          |
+| ------------------ | ------------- |
+| セッション名       | 最大 100 文字 |
+| ドキュメント選択数 | 最大 10 個    |
+
+**レスポンス (201 Created)**
+
+```json
+{
+  "session": {
+    "sessionId": "sess-550e8400-e29b-41d4-a716-446655440000",
+    "sessionName": "プロジェクト相談",
+    "selectedDocumentIds": ["doc-001", "doc-002"],
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "lastMessageAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+### 2. セッション一覧取得
+
+`GET /chat/sessions`
+
+認証ユーザーのチャットセッション一覧を取得します。
+
+**レスポンス (200 OK)**
+
+```json
+{
+  "sessions": [
+    {
+      "sessionId": "sess-001",
+      "sessionName": "プロジェクト相談",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "lastMessageAt": "2024-01-01T10:30:00.000Z",
+      "updatedAt": "2024-01-01T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+### 4. メッセージ履歴取得
+
+`GET /chat/sessions/{sessionId}/messages`
+
+セッションのメッセージ履歴を取得します。
+
+**レスポンス (200 OK)**
+
+```json
+{
+  "messages": [
+    {
+      "historyId": "hist-001",
+      "sessionId": "sess-001",
+      "userQuery": "ドキュメントの要約を教えてください",
+      "aiResponse": "アップロードされたドキュメントは...",
+      "sourceDocuments": [
+        {
+          "documentId": "doc-001",
+          "fileName": "report.pdf",
+          "text": "該当するテキスト...",
+          "score": 0.95
+        }
+      ],
+      "feedbackType": "NONE",
+      "createdAt": "2024-01-01T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+### 5. セッション名更新
+
+`PATCH /chat/sessions/{sessionId}`
+
+セッション名を更新します。
+
+**リクエスト**
+
+```json
+{
+  "sessionName": "新しいセッション名"
+}
+```
+
+**レスポンス (200 OK)**
+
+```json
+{
+  "session": {
+    "sessionId": "sess-001",
+    "sessionName": "新しいセッション名",
+    "updatedAt": "2024-01-02T10:00:00.000Z"
+  }
+}
+```
+
+### 6. セッション削除
+
+`DELETE /chat/sessions/{sessionId}`
+
+セッションとその全メッセージ履歴を削除します。
+
+**レスポンス (200 OK)**
+
+```json
+{
+  "message": "Session deleted successfully"
+}
+```
+
+### 7. フィードバック送信
+
+`POST /chat/messages/{historyId}/feedback`
+
+メッセージに対するフィードバックを送信します。
+
+**リクエスト**
+
+```json
+{
+  "feedbackType": "GOOD",
+  "feedbackReasons": ["helpful", "accurate"],
+  "comment": "とても参考になりました"
+}
+```
+
+**フィードバック種別**
+
+| 値     | 説明               |
+| ------ | ------------------ |
+| `NONE` | フィードバックなし |
+| `GOOD` | 良い回答           |
+| `BAD`  | 悪い回答           |
+
+**レスポンス (200 OK)**
+
+```json
+{
+  "message": {
+    "historyId": "hist-001",
+    "feedbackType": "GOOD",
+    "feedbackReasons": ["helpful", "accurate"],
+    "feedbackComment": "とても参考になりました"
+  }
+}
+```
+
+## 設計上の位置づけ
+
+本関数は **チャットセッションと履歴の CRUD / フィードバック管理** に責務を限定しており、  
+RAG 推論パイプライン自体（Bedrock での生成や Pinecone 検索）は `chat` 関数側で実行されます。
+
+RAG パイプラインの詳細は `src/functions/chat/README.md` を参照してください。
+
+## 認証
+
+### AWS 環境
+
+API Gateway Authorizer で認証を実施します。
+
+### ローカル環境
+
+認証をバイパスし、固定の所有者 ID `user-001` を使用します。
+
+## DynamoDB スキーマ
+
+### Chat History Table
+
+| 属性                  | 型             | 説明                      |
+| --------------------- | -------------- | ------------------------- |
+| `sessionId` (PK)      | String         | セッション ID             |
+| `historyId` (SK)      | String         | 履歴 ID（ソートキー）     |
+| `ownerId`             | String         | 所有者 ID                 |
+| `sessionName`         | String         | セッション名              |
+| `selectedDocumentIds` | List\<String\> | 選択されたドキュメント ID |
+| `userQuery`           | String         | ユーザーの質問            |
+| `aiResponse`          | String         | AI の回答                 |
+| `sourceDocuments`     | List\<Object\> | 参照ドキュメント情報      |
+| `feedbackType`        | String         | フィードバック種別        |
+| `feedbackReasons`     | List\<String\> | フィードバック理由        |
+| `feedbackComment`     | String         | フィードバックコメント    |
+| `createdAt`           | String         | 作成日時                  |
+| `updatedAt`           | String         | 更新日時                  |
+
+### レコード種別
+
+同一テーブル内でセッションメタデータとメッセージ履歴を管理します。
+
+| historyId パターン       | 種別                 |
+| ------------------------ | -------------------- |
+| `#METADATA`              | セッションメタデータ |
+| `msg-{timestamp}-{uuid}` | メッセージ履歴       |
+
+## エラーハンドリング
+
+### エラーコード
+
+| エラーコード                   | HTTP | 説明                   |
+| ------------------------------ | ---- | ---------------------- |
+| `CHAT_SESSION_NOT_FOUND`       | 404  | セッションが存在しない |
+| `CHAT_SESSION_NAME_EMPTY`      | 400  | セッション名が空       |
+| `CHAT_SESSION_NAME_TOO_LONG`   | 400  | セッション名が長すぎる |
+| `CHAT_QUERY_EMPTY`             | 400  | クエリが空             |
+| `CHAT_QUERY_TOO_LONG`          | 400  | クエリが長すぎる       |
+| `DOCUMENTS_SELECTION_EMPTY`    | 400  | ドキュメント選択が空   |
+| `DOCUMENTS_SELECTION_TOO_MANY` | 400  | ドキュメント選択数超過 |
+
+> **補足**: ストリーミングレスポンスや Lambda Function URL に関する説明は  
+> `src/functions/chat/README.md` に集約しています。
+
+## テスト
+
+```bash
+# ユニットテスト実行
+cd infrastructure
+npm run test -- src/functions/chat-sessions/
+
+# 手動テスト（curl） - セッション作成
+curl -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"sessionName": "プロジェクト相談"}' \
+  "${API_BASE_URL}/chat/sessions"
+```

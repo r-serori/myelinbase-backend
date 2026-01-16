@@ -1,0 +1,165 @@
+{
+  "Comment": "RAG Ingestion Pipeline - Document processing workflow for Myelin Base",
+  "StartAt": "UpdateStatusProcessing",
+  "TimeoutSeconds": 270,
+  "States": {
+    "UpdateStatusProcessing": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "updateStatus",
+        "status": "PROCESSING",
+        "payload": {
+          "documentId.$": "$.documentId"
+        }
+      },
+      "ResultPath": "$.updateStatusResult",
+      "Next": "ExtractAndChunk",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "UpdateStatusFailed"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
+    },
+    "ExtractAndChunk": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "TimeoutSeconds": 60,
+      "Parameters": {
+        "action": "extractAndChunk",
+        "payload": {
+          "documentId.$": "$.documentId",
+          "bucket.$": "$.bucket",
+          "key.$": "$.key"
+        }
+      },
+      "ResultPath": "$.extractResult",
+      "Next": "EmbedAndUpsert",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "UpdateStatusFailed"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL",
+          "Comment": "★ 変更: MaxAttempts 6→4 (タイムアウト内に収まるように調整)"
+        }
+      ]
+    },
+    "EmbedAndUpsert": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "TimeoutSeconds": 180,
+      "Parameters": {
+        "action": "embedAndUpsert",
+        "payload": {
+          "documentId.$": "$.documentId",
+          "chunksS3Uri.$": "$.extractResult.chunksS3Uri"
+        }
+      },
+      "ResultPath": "$.embedResult",
+      "Next": "UpdateStatusCompleted",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "UpdateStatusFailed"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL",
+          "Comment": "★ 変更: MaxAttempts 8→4 (タイムアウト内に収まるように調整)"
+        }
+      ]
+    },
+    "UpdateStatusCompleted": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "updateStatus",
+        "status": "COMPLETED",
+        "payload": {
+          "documentId.$": "$.documentId"
+        }
+      },
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
+    },
+    "UpdateStatusFailed": {
+      "Type": "Task",
+      "Resource": "${DocProcessorFunctionArn}",
+      "Parameters": {
+        "action": "updateStatus",
+        "status": "FAILED",
+        "payload": {
+          "documentId.$": "$.documentId"
+        },
+        "error": {
+          "message.$": "States.Format('Pipeline failed: {}', $.error.Cause)"
+        }
+      },
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 4,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
+    }
+  }
+}

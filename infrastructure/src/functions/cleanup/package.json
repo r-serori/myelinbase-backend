@@ -1,0 +1,6 @@
+{
+  "name": "cleanup-function",
+  "version": "1.0.0",
+  "description": "Cleanup API Lambda Function",
+  "main": "index.ts"
+}

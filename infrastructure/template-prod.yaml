@@ -1,0 +1,869 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Myelin Base Backend - RAG AI Platform
+  カスタムドメイン対応の本番構成
+
+# ============================================
+# Parameters
+# ============================================
+Parameters:
+  ProjectName:
+    Type: String
+    Default: myelinbase
+
+  Stage:
+    Type: String
+    Default: prod
+    Description: Deployment stage
+
+  FrontendUrl:
+    Type: String
+    Description: Allowed Origin for CORS (e.g. https://app.myelinbase.com)
+
+  # --- Custom Domain Parameters ---
+  DomainName:
+    Type: String
+    Description: Custom domain name for API (e.g. api.myelinbase.com)
+
+  CertificateArn:
+    Type: String
+    Description: ACM Certificate ARN for the custom domain
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 Hosted Zone ID for creating alias record
+
+  # --- Application Parameters ---
+  UseBedrock:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  PineconeApiKeyParameterName:
+    Type: String
+    Default: /myelinbase/prod/pinecone-api-key
+    Description: SSM Parameter Store name for Pinecone API Key
+
+  PineconeIndexName:
+    Type: String
+    Default: myelinbase-documents
+
+  ChatModelId:
+    Type: String
+    Default: "anthropic.claude-3-haiku-20240307-v1:0"
+
+  EmbeddingModelId:
+    Type: String
+    Default: "amazon.titan-embed-text-v1"
+
+  EnableThinking:
+    Type: String
+    Default: "false"
+
+# ============================================
+# Globals
+# ============================================
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 512
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        POWERTOOLS_SERVICE_NAME: !Ref ProjectName
+        LOG_LEVEL: INFO
+        ALLOWED_ORIGINS: !Ref FrontendUrl
+        CHAT_MODEL_ID: !Ref ChatModelId
+        EMBEDDING_MODEL_ID: !Ref EmbeddingModelId
+        PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
+        PINECONE_INDEX_NAME: !Ref PineconeIndexName
+        USE_BEDROCK: !Ref UseBedrock
+
+# ============================================
+# Resources
+# ============================================
+Resources:
+  # ---------------------------------------------------
+  # Cognito User Pool & Client
+  # ---------------------------------------------------
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${ProjectName}-${Stage}-user-pool"
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      Schema:
+        - AttributeDataType: String
+          Name: email
+          Required: true
+          Mutable: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${ProjectName}-${Stage}-client"
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+
+  # ---------------------------------------------------
+  # API Gateway (カスタムドメインなし - 別リソースで設定)
+  # ---------------------------------------------------
+  ServerlessApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${ProjectName}-${Stage}-api"
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: !Sub "'${FrontendUrl}'"
+        AllowCredentials: true
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt CognitoUserPool.Arn
+            IdentitySource: method.request.header.Authorization
+
+  # ---------------------------------------------------
+  # Custom Domain Resources
+  # ---------------------------------------------------
+  ApiCustomDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Properties:
+      DomainName: !Ref DomainName
+      RegionalCertificateArn: !Ref CertificateArn
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      SecurityPolicy: TLS_1_2
+
+  ApiBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    DependsOn:
+      - ServerlessApiGatewayStage
+    Properties:
+      DomainName: !Ref ApiCustomDomainName
+      RestApiId: !Ref ServerlessApiGateway
+      Stage: !Ref Stage
+
+  ApiRoute53RecordSet:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: A
+          AliasTarget:
+            DNSName: !GetAtt ApiCustomDomainName.RegionalDomainName
+            HostedZoneId: !GetAtt ApiCustomDomainName.RegionalHostedZoneId
+
+  # ---------------------------------------------------
+  # Database (DynamoDB) - DocumentTable
+  # ---------------------------------------------------
+  DocumentTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${ProjectName}-${Stage}-documents"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: documentId
+          AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
+        - AttributeName: fileName
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+        - AttributeName: fileHash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: documentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: OwnerIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: FileNameIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: fileName
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - status
+        - IndexName: FileHashIndex
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+            - AttributeName: fileHash
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - status
+      StreamSpecification:
+        StreamViewType: OLD_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ---------------------------------------------------
+  # Database (DynamoDB) - ChatHistoryTable
+  # ---------------------------------------------------
+  ChatHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-${Stage}-chat-history"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # ---------------------------------------------------
+  # SQS Queue for Document Ingestion
+  # ---------------------------------------------------
+  DocumentIngestionQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-${Stage}-ingestion-queue"
+      VisibilityTimeout: 360
+      MessageRetentionPeriod: 86400
+      ReceiveMessageWaitTimeSeconds: 20
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DocumentIngestionDLQ.Arn
+        maxReceiveCount: 3
+
+  DocumentIngestionDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-${Stage}-ingestion-dlq"
+      MessageRetentionPeriod: 1209600
+
+  DocumentIngestionQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref DocumentIngestionQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt DocumentIngestionQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+
+  # ---------------------------------------------------
+  # Chat Agent API
+  # ---------------------------------------------------
+  ChatAgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-agent"
+      CodeUri: .
+      Handler: index.handler
+      Description: Streaming Chat Agent
+      Timeout: 300
+      MemorySize: 1024
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowCredentials: true
+          AllowHeaders:
+            - "*"
+          AllowMethods:
+            - POST
+          AllowOrigins:
+            - !Ref FrontendUrl
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
+          USER_POOL_ID: !Ref CognitoUserPool
+          CLIENT_ID: !Ref CognitoUserPoolClient
+          ENABLE_THINKING: !Ref EnableThinking
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt ChatHistoryTable.Arn
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModelWithResponseStream
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${ChatModelId}"
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PineconeApiKeyParameterName}"
+            - Effect: Allow
+              Action:
+                - aws-marketplace:ViewSubscriptions
+                - aws-marketplace:Subscribe
+                - aws-marketplace:Unsubscribe
+              Resource: "*"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/chat/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Chat Sessions
+  # ---------------------------------------------------
+  ChatSessionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-chat-sessions"
+      CodeUri: .
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Description: Chat Sessions API
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-chat-history"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt ChatHistoryTable.Arn
+                - !Sub "${ChatHistoryTable.Arn}/index/GSI1"
+      Events:
+        ChatFeedback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/feedback
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetSessions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        UpdateSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: PATCH
+            Auth:
+              Authorizer: CognitoAuthorizer
+        DeleteSession:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /chat/sessions/{sessionId}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/chat-sessions/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Doc Processor
+  # ---------------------------------------------------
+  DocProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-doc-processor"
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 1024
+      ReservedConcurrentExecutions: 15
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+          PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt DocumentTable.Arn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource:
+                - !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}/*"
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/${EmbeddingModelId}"
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PineconeApiKeyParameterName}"
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/processor/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # RAG Pipeline State Machine (Step Functions)
+  # ---------------------------------------------------
+  RAGPipelineStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "${ProjectName}-${Stage}-pipeline"
+      Type: EXPRESS
+      DefinitionUri: statemachine/rag-pipeline.asl.json
+      DefinitionSubstitutions:
+        DocProcessorFunctionArn: !GetAtt DocProcessorFunction.Arn
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt DocProcessorFunction.Arn
+            - Effect: Allow
+              Action:
+                - logs:CreateLogDelivery
+                - logs:GetLogDelivery
+                - logs:UpdateLogDelivery
+                - logs:DeleteLogDelivery
+                - logs:ListLogDeliveries
+                - logs:PutResourcePolicy
+                - logs:DescribeResourcePolicies
+                - logs:DescribeLogGroups
+              Resource: "*"
+      Logging:
+        Level: ERROR
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt RAGPipelineLogGroup.Arn
+      Tags:
+        Project: !Ref ProjectName
+        Stage: !Ref Stage
+
+  # ---------------------------------------------------
+  # CloudWatch Log Group for State Machine
+  # ---------------------------------------------------
+  RAGPipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/stepfunctions/${ProjectName}-${Stage}-pipeline"
+      RetentionInDays: 14
+
+  # ---------------------------------------------------
+  # Ingestion Trigger
+  # ---------------------------------------------------
+  IngestionTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-trigger"
+      CodeUri: .
+      Handler: index.handler
+      MemorySize: 256
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref RAGPipelineStateMachine
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+                - states:StartSyncExecution
+              Resource: !Ref RAGPipelineStateMachine
+            - Effect: Allow
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+              Resource: !GetAtt DocumentIngestionQueue.Arn
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt DocumentIngestionQueue.Arn
+            BatchSize: 1
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            ScalingConfig:
+              MaximumConcurrency: 5
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/trigger/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Documents API
+  # ---------------------------------------------------
+  DocumentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-documents"
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+          TABLE_NAME: !Sub "${ProjectName}-${Stage}-documents"
+          PRESIGNED_URL_EXPIRY: "900"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt DocumentTable.Arn
+                - !Sub "${DocumentTable.Arn}/index/OwnerIndex"
+                - !Sub "${DocumentTable.Arn}/index/FileNameIndex"
+                - !Sub "${DocumentTable.Arn}/index/FileHashIndex"
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource:
+                - !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}/*"
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PineconeApiKeyParameterName}"
+      Events:
+        GetDocuments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents
+            Method: GET
+        UploadRequest:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/upload
+            Method: POST
+        GetDocument:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}
+            Method: GET
+        GetDownloadUrl:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}/download-url
+            Method: GET
+        DeleteDocument:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}
+            Method: DELETE
+        BatchDeleteDocuments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/batch-delete
+            Method: POST
+        UpdateTags:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ServerlessApiGateway
+            Path: /documents/{id}/tags
+            Method: PATCH
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/documents/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # Cleanup Worker (DynamoDB Stream)
+  # ---------------------------------------------------
+  DocumentCleanupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Stage}-cleanup"
+      CodeUri: .
+      Handler: index.handler
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+          PINECONE_INDEX_NAME: !Ref PineconeIndexName
+          PINECONE_API_KEY_PARAMETER_NAME: !Ref PineconeApiKeyParameterName
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:DeleteObject
+              Resource:
+                - !Sub "arn:aws:s3:::${ProjectName}-${Stage}-docs-${AWS::AccountId}/*"
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt DocumentTable.StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 10
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName": ["REMOVE"]}'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        OutExtension:
+          - .js=.cjs
+        Format: cjs
+        Minify: true
+        Target: es2022
+        Sourcemap: true
+        EntryPoints:
+          - src/functions/cleanup/index.ts
+        External:
+          - "@aws-sdk/*"
+
+  # ---------------------------------------------------
+  # S3 Bucket for Documents
+  # ---------------------------------------------------
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: DocumentIngestionQueuePolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - PUT
+              - POST
+              - GET
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - !Ref FrontendUrl
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt DocumentIngestionQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
+
+# ============================================
+# Outputs
+# ============================================
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway Endpoint URL (Custom Domain)
+    Value: !Sub "https://${DomainName}"
+
+  ApiGatewayEndpoint:
+    Description: API Gateway Default Endpoint URL
+    Value: !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+
+  ChatAgentEndpoint:
+    Description: Streaming Function URL for Chat Agent
+    Value: !GetAtt ChatAgentFunctionUrl.FunctionUrl
+
+  CognitoUserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool
+
+  CognitoUserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref CognitoUserPoolClient
+
+  DocumentsBucketName:
+    Description: S3 Bucket Name
+    Value: !Ref DocumentsBucket
+
+  CustomDomainName:
+    Description: Custom Domain Name
+    Value: !Ref DomainName
+
+  StateMachineArn:
+    Description: RAG Pipeline State Machine ARN
+    Value: !Ref RAGPipelineStateMachine
+
+  StateMachineLogGroup:
+    Description: State Machine Log Group
+    Value: !Ref RAGPipelineLogGroup
+
+  IngestionQueueUrl:
+    Description: "Document Ingestion SQS Queue URL"
+    Value: !Ref DocumentIngestionQueue
+
+  IngestionQueueArn:
+    Description: "Document Ingestion SQS Queue ARN"
+    Value: !GetAtt DocumentIngestionQueue.Arn
+
+  IngestionDLQUrl:
+    Description: "Document Ingestion Dead Letter Queue URL"
+    Value: !Ref DocumentIngestionDLQ

@@ -1,0 +1,6 @@
+{
+  "name": "chat-agent-function",
+  "version": "1.0.0",
+  "description": "Chat Agent API Lambda Function with Streaming",
+  "main": "index.ts"
+}
