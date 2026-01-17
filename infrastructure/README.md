@@ -266,7 +266,7 @@ stack_name = "myelinbase-backend-prod"
 confirm_changeset = true
 parameter_overrides = [
   "Stage=prod",
-  "FrontendUrl=https://app.myelinbase.com",
+  "FrontendUrl=https://www.myelinbase.com",
   ...
 ]
 ```
