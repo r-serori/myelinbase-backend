@@ -92,7 +92,7 @@ Resources:
           MinimumLength: 8
           RequireLowercase: true
           RequireNumbers: true
-          RequireSymbols: false
+          RequireSymbols: true
           RequireUppercase: true
       Schema:
         - AttributeDataType: String
@@ -111,7 +111,6 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
-        - ALLOW_USER_PASSWORD_AUTH
       PreventUserExistenceErrors: ENABLED
 
   # ---------------------------------------------------
