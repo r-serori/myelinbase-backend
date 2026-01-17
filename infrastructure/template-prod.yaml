@@ -20,7 +20,7 @@ Parameters:
 
   FrontendUrl:
     Type: String
-    Description: Allowed Origin for CORS (e.g. https://app.myelinbase.com)
+    Description: Allowed Origin for CORS (e.g. https://www.myelinbase.com)
 
   # --- Custom Domain Parameters ---
   DomainName:
