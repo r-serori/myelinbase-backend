@@ -36,7 +36,7 @@ jobs:
   # ===================================================
   # 2. Deploy to Development (CD)
   #    - Triggered on push to 'develop' branch
-  #    - Uses template.yaml (no custom domain)
+  #    - Uses unified template.yaml (no custom domain)
   # ===================================================
   deploy-dev:
     name: Deploy to Dev
@@ -74,7 +74,7 @@ jobs:
   # ===================================================
   # 3. Deploy to Production (CD)
   #    - Triggered on push to 'main' branch
-  #    - Uses template-prod.yaml (with custom domain)
+  #    - Uses unified template.yaml (with custom domain via parameters)
   # ===================================================
   deploy-prod:
     name: Deploy to Prod
@@ -107,5 +107,4 @@ jobs:
           aws-region: ap-northeast-1
 
       - name: Deploy to Production Environment
-        run: |
-          npm run deploy:prod
+        run: npm run deploy:prod

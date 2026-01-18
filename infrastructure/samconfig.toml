@@ -6,7 +6,7 @@ stack_name = "myelinbase-backend"
 
 # ============================================
 # Dev Environment (AWS)
-# template.yaml を使用（カスタムドメインなし）
+# 統合テンプレート使用（カスタムドメインなし）
 # ============================================
 [dev]
 [dev.deploy.parameters]
@@ -31,15 +31,14 @@ parallel = true
 
 # ============================================
 # Prod Environment (AWS)
-# template-prod.yaml を使用（カスタムドメインあり）
+# 統合テンプレート使用（カスタムドメインあり）
 # ============================================
 [prod]
 [prod.deploy.parameters]
 stack_name = "myelinbase-backend-prod"
-template_file = "template-prod.yaml"
 resolve_s3 = true
 region = "ap-northeast-1"
-confirm_changeset = true
+confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 fail_on_empty_changeset = false
 parameter_overrides = [
@@ -56,6 +55,5 @@ parameter_overrides = [
 image_repositories = []
 
 [prod.build.parameters]
-template_file = "template-prod.yaml"
 cached = true
 parallel = true
