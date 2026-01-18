@@ -36,7 +36,6 @@ parallel = true
 [prod]
 [prod.deploy.parameters]
 stack_name = "myelinbase-backend-prod"
-template_file = "template-prod.yaml"
 resolve_s3 = true
 region = "ap-northeast-1"
 confirm_changeset = true
