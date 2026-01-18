@@ -3,6 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 
 Description: >
   Myelin Base Backend - RAG AI Platform
+  Unified template for dev/prod environments
 
 # ============================================
 # Parameters
@@ -15,13 +16,33 @@ Parameters:
   Stage:
     Type: String
     Default: dev
+    AllowedValues:
+      - dev
+      - prod
     Description: Deployment stage
 
   FrontendUrl:
     Type: String
     Default: "*"
-    Description: Allowed Origin for CORS
+    Description: Allowed Origin for CORS (e.g. https://www.myelinbase.com)
 
+  # --- Custom Domain Parameters (prod only) ---
+  DomainName:
+    Type: String
+    Default: ""
+    Description: Custom domain name for API (e.g. api.myelinbase.com). Leave empty for dev.
+
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM Certificate ARN for the custom domain. Required if DomainName is set.
+
+  HostedZoneId:
+    Type: String
+    Default: ""
+    Description: Route53 Hosted Zone ID for creating alias record. Required if DomainName is set.
+
+  # --- Application Parameters ---
   UseBedrock:
     Type: String
     Default: "false"
@@ -49,6 +70,13 @@ Parameters:
   EnableThinking:
     Type: String
     Default: "false"
+
+# ============================================
+# Conditions
+# ============================================
+Conditions:
+  IsProd: !Equals [!Ref Stage, prod]
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
 
 # ============================================
 # Globals
@@ -114,7 +142,7 @@ Resources:
       PreventUserExistenceErrors: ENABLED
 
   # ---------------------------------------------------
-  # API Gateway (カスタムドメインなし)
+  # API Gateway
   # ---------------------------------------------------
   ServerlessApiGateway:
     Type: AWS::Serverless::Api
@@ -125,7 +153,7 @@ Resources:
         AllowMethods: "'*'"
         AllowHeaders: "'*'"
         AllowOrigin: !Sub "'${FrontendUrl}'"
-        AllowCredentials: false
+        AllowCredentials: !If [IsProd, true, false]
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
         AddDefaultAuthorizerToCorsPreflight: false
@@ -135,10 +163,48 @@ Resources:
             IdentitySource: method.request.header.Authorization
 
   # ---------------------------------------------------
+  # Custom Domain Resources (prod only)
+  # ---------------------------------------------------
+  ApiCustomDomainName:
+    Type: AWS::ApiGateway::DomainName
+    Condition: HasCustomDomain
+    Properties:
+      DomainName: !Ref DomainName
+      RegionalCertificateArn: !Ref CertificateArn
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      SecurityPolicy: TLS_1_2
+
+  ApiBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Condition: HasCustomDomain
+    DependsOn:
+      - ServerlessApiGatewayStage
+    Properties:
+      DomainName: !Ref ApiCustomDomainName
+      RestApiId: !Ref ServerlessApiGateway
+      Stage: !Ref Stage
+
+  ApiRoute53RecordSet:
+    Type: AWS::Route53::RecordSetGroup
+    Condition: HasCustomDomain
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: A
+          AliasTarget:
+            DNSName: !GetAtt ApiCustomDomainName.RegionalDomainName
+            HostedZoneId: !GetAtt ApiCustomDomainName.RegionalHostedZoneId
+
+  # ---------------------------------------------------
   # Database (DynamoDB) - DocumentTable
   # ---------------------------------------------------
   DocumentTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
       TableName: !Sub "${ProjectName}-${Stage}-documents"
       BillingMode: PAY_PER_REQUEST
@@ -190,6 +256,8 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
 
   # ---------------------------------------------------
   # Database (DynamoDB) - ChatHistoryTable
@@ -225,6 +293,8 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProd, true, false]
 
   # ---------------------------------------------------
   # SQS Queue for Document Ingestion
@@ -279,7 +349,7 @@ Resources:
         AuthType: NONE
         InvokeMode: RESPONSE_STREAM
         Cors:
-          AllowCredentials: false
+          AllowCredentials: !If [IsProd, true, false]
           AllowHeaders:
             - "*"
           AllowMethods:
@@ -727,6 +797,8 @@ Resources:
   DocumentsBucket:
     Type: AWS::S3::Bucket
     DependsOn: DocumentIngestionQueuePolicy
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
       BucketName: !Sub "${ProjectName}-${Stage}-docs-${AWS::AccountId}"
       CorsConfiguration:
@@ -749,6 +821,8 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: !If [IsProd, Enabled, Suspended]
       NotificationConfiguration:
         QueueConfigurations:
           - Event: s3:ObjectCreated:*
@@ -765,6 +839,13 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: API Gateway Endpoint URL
+    Value: !If
+      - HasCustomDomain
+      - !Sub "https://${DomainName}"
+      - !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+
+  ApiGatewayEndpoint:
+    Description: API Gateway Default Endpoint URL
     Value: !Sub "https://${ServerlessApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
 
   ChatAgentEndpoint:
@@ -782,6 +863,11 @@ Outputs:
   DocumentsBucketName:
     Description: S3 Bucket Name
     Value: !Ref DocumentsBucket
+
+  CustomDomainName:
+    Condition: HasCustomDomain
+    Description: Custom Domain Name
+    Value: !Ref DomainName
 
   StateMachineArn:
     Description: RAG Pipeline State Machine ARN
