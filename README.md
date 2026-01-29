@@ -43,11 +43,16 @@ flowchart TB
         end
 
         subgraph Compute["⚡ Compute"]
-            DocLambda["Documents LambdaCRUD操作"]
-            ChatLambda["Chat Lambdaストリーミング生成"]
-            TriggerLambda["Trigger LambdaS3イベント処理"]
-            ProcessorLambda["Processor LambdaRAGパイプライン"]
-            CleanupLambda["Cleanup Lambdaリソース削除"]
+            DocLambda["Documents Lambda<br/>CRUD操作"]
+            ChatLambda["Chat Lambda<br/>ストリーミング生成"]
+            ChatSessionsLambda["Chat Sessions Lambda<br/>セッション管理"]
+            TriggerLambda["Trigger Lambda<br/>SQSイベント処理"]
+            CleanupLambda["Cleanup Lambda<br/>リソース削除"]
+        end
+
+        subgraph Messaging["📨 Messaging"]
+            SQS["SQS Queue<br/>Document Ingestion"]
+            DLQ["Dead Letter Queue"]
         end
 
         subgraph Orchestration["🔄 Orchestration"]
@@ -351,9 +356,6 @@ npm run deploy:local
 
 # 5. SAM Local API の起動（別ターミナル）
 npm run api:start
-
-# 6. 動作確認
-curl http://localhost:3000/health
 ```
 
 ### 次のステップ
@@ -475,10 +477,7 @@ npm run api:start
 #### 4. 動作確認
 
 ```bash
-# ヘルスチェック
-curl http://localhost:3000/health
-
-# ローカル環境では認証がバイパスされ、user-001 として自動認証されます
+curl http://localhost:3000
 ```
 
 ### AWS 開発環境へのデプロイ
@@ -641,7 +640,7 @@ npm run deploy:prod
 
 ### 認証
 
-すべてのエンドポイント（`/health` を除く）は Cognito JWT トークンが必要です。
+すべてのエンドポイントは Cognito JWT トークンが必要です。
 
 ```bash
 # リクエストヘッダー
@@ -715,24 +714,6 @@ POST <ChatAgentEndpoint>/chat/stream
 0:"。"
 e:{"finishReason":"stop","usage":{"promptTokens":150,"completionTokens":50}}
 d:{"finishReason":"stop"}
-```
-
-### Health API
-
-システムの稼働状況を確認するためのヘルスチェックエンドポイントです。
-
-| メソッド | パス      | 説明           | 認証 |
-| -------- | --------- | -------------- | ---- |
-| GET      | `/health` | ヘルスチェック | 不要 |
-
-**レスポンス例**:
-
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "version": "2.0.0"
-}
 ```
 
 ### OpenAPI 仕様
