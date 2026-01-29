@@ -31,10 +31,9 @@ graph TB
         subgraph "Lambda Functions"
             DocFn[Documents Function<br/>Node.js 20.x]
             ChatFn[Chat Agent Function<br/>Node.js 20.x<br/>Streaming URL]
+            ChatSessionsFn[Chat Sessions Function<br/>Node.js 20.x]
             TriggerFn[Ingestion Trigger<br/>Node.js 20.x]
-            ProcFn[Doc Processor<br/>Node.js 20.x]
-            StreamProcFn[Stream Processor<br/>Node.js 20.x]
-            HealthFn[Health Check<br/>Node.js 20.x]
+            CleanupFn[Cleanup Function<br/>Node.js 20.x]
         end
 
         %% Storage
@@ -70,7 +69,7 @@ graph TB
 
     APIGW -->|Authorizer| CognitoUserPool
     APIGW --> DocFn
-    APIGW --> HealthFn
+    APIGW --> ChatSessionsFn
 
     DocFn --> DocTable
     DocFn --> S3Bucket
@@ -80,21 +79,22 @@ graph TB
     ChatFn --> Bedrock
     ChatFn --> Pinecone
 
+    ChatSessionsFn --> ChatTable
+
     S3Bucket -->|s3:ObjectCreated| SQS
     SQS --> TriggerFn
     SQS -.-> DLQ
     TriggerFn --> SFN
 
-    SFN --> ProcFn
-    ProcFn --> S3Bucket
-    ProcFn --> DocTable
-    ProcFn --> Bedrock
-    ProcFn --> Pinecone
-    ProcFn --> SSM
+    SFN --> S3Bucket
+    SFN --> DocTable
+    SFN --> Bedrock
+    SFN --> Pinecone
+    SFN --> SSM
 
-    DocTable -->|DynamoDB Streams| StreamProcFn
-    StreamProcFn --> S3Bucket
-    StreamProcFn --> Pinecone
+    DocTable -->|DynamoDB Streams| CleanupFn
+    CleanupFn --> S3Bucket
+    CleanupFn --> Pinecone
 ```
 
 ## ディレクトリ構成
